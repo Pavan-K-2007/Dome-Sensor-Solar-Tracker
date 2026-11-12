@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dome Sensor (5 photodiodes)</title>
+<style>
+html,body{margin:0;height:100%;background:#05050a;overflow:hidden;font:13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#eaeaf5}
+canvas{position:fixed;inset:0;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
+canvas.drag{cursor:grabbing}
+#hud{position:fixed;left:16px;bottom:16px;padding:12px 14px;background:rgba(8,8,16,.82);border:1px solid rgba(255,255,255,.14);border-radius:12px;min-width:290px;transition:opacity .3s}
+#hud.hide{opacity:0;pointer-events:none}
+#m{font-weight:600;margin-bottom:2px}
+#m.demo{color:#f59e0b}
+#r,#e,#t{color:rgba(234,234,245,.75);font-variant-numeric:tabular-nums}
+#bars{display:flex;gap:6px;align-items:flex-end;height:44px;margin:8px 0 2px}
+#bars div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;height:100%}
+#bars i{background:#f59e0b;border-radius:2px;min-height:2px;transition:height .1s;display:block}
+#names{display:flex;gap:6px;margin-bottom:4px}
+#names span{flex:1;text-align:center;font-size:11px;color:rgba(234,234,245,.55)}
+#raw{font-size:11px;color:rgba(234,234,245,.5);font-variant-numeric:tabular-nums;margin-bottom:6px;min-height:16px}
+#hud button{font:600 12px system-ui;color:#eaeaf5;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 10px;cursor:pointer;margin:0 4px 4px 0}
+#hud button:hover{border-color:#f59e0b}
+#hud button:disabled{opacity:.4;cursor:not-allowed}
+#hud button.on{border-color:#f59e0b;color:#f59e0b}
+small{display:block;margin-top:2px;color:rgba(234,234,245,.45)}
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div id="hud">
+  <div id="m">No sensor data</div>
+  <div id="r">Connect the ESP32 (USB serial)</div>
+  <div id="e"></div>
+  <div id="t"></div>
+  <div id="bars"></div>
+  <div id="names"></div>
+  <div id="raw"></div>
+  <button id="bs">USB serial</button><button id="bw">WebSocket</button>
+  <button id="bz">Zero (dark)</button><button id="br">Reset zero</button><button id="bd">Demo</button><button id="bv">Reset view</button>
+  <small>Mouse: drag = orbit · Shift or right-drag = pan · scroll = zoom · double-click = reset view</small>
+  <small>Press H to hide this panel</small>
+</div>
+<script>
+/* ============================================================
+   DOME SENSOR - 5 PHOTODIODE VERSION (for ESP32)
+
+   The sun marker and every number on this page come ONLY from the 5 sensor readings.
+   The mouse only moves the CAMERA (orbit / pan / zoom, like Blender). It never changes a reading and never makes a sun.
+   Mouse:  drag or middle-drag = orbit   |   Shift+drag, Shift+middle-drag or right-drag = pan
+           scroll wheel = zoom   |   Ctrl+drag = zoom   |   double-click = reset view   |   touch: 1 finger orbit, 2 finger pinch/pan
+   With no sensor data the dome stays dark (no fake sun) unless you press "Demo".
+
+   The ESP32 sends one line per reading:   S1,S2,S3,S4,S5\n
+   (5 numbers, raw ADC counts, comma or space separated; a JSON array also works)
+
+   Connect:  click "USB serial" (Chrome / Edge only), or use ?ws=ws://192.168.x.x:81
+
+   URL options (all optional):
+     ?adc=4095  ?baud=115200  ?cloud=0.2  ?deadband=0.05  ?yaw=20  ?pitch=24  ?demo=1  ?hud=0
+   ============================================================ */
+const P=new URLSearchParams(location.search);
+const num=(k,d)=>P.has(k)&&Number.isFinite(+P.get(k))?+P.get(k):d;
+
+/* ===================== PLACEHOLDERS - edit these for your build ===================== */
+const CFG={
+  adc:num('adc',4095),          // PLACEHOLDER: full-scale count of your ADC (ESP32 internal = 4095, ADS1115 = 32767)
+  baud:num('baud',115200),      // PLACEHOLDER: must match Serial.begin() in the ESP32 sketch
+  ws:P.get('ws')||'',           // PLACEHOLDER: WebSocket address, only if you add Wi-Fi to the sketch
+  wsDefault:'ws://ESP32_IP_ADDRESS:81',   // PLACEHOLDER: text shown in the WebSocket prompt
+
+  // PLACEHOLDER: [azimuth, elevation] in degrees of S1..S5 - measure these on your real dome.
+  // azimuth 0 = front of the dome, 90 = east side, 180 = back, 270 = west side. elevation 90 = straight up.
+  sensors:[[0,90],[0,55],[90,55],[180,55],[270,55]],
+  names:['Top','N','E','S','W'],           // PLACEHOLDER: labels
+
+  gain:[1,1,1,1,1],             // PLACEHOLDER: per-sensor gain match (1 = no change). Change after your lamp calibration.
+  offset:[0,0,0,0,0],           // PLACEHOLDER: dark offsets in counts, used until you press "Zero (dark)"
+  minLight:0.02,                // PLACEHOLDER: readings below this (0..1) are treated as darkness / noise
+
+  east:2, west:4,               // PLACEHOLDER: 0-based index of the East and West sensors
+  ring:[1,2,3,4],               // PLACEHOLDER: sensors compared to decide diffuse (cloudy) light
+  cloud:num('cloud',0.2),       // PLACEHOLDER: ring spread below this = diffuse sky
+  deadband:num('deadband',0.05),// PLACEHOLDER: |(E-W)/(E+W)| below this = "hold" (preview only)
+
+  view:{yaw:num('yaw',20), pitch:num('pitch',24)}   // PLACEHOLDER: starting camera angle in degrees ("Reset view" returns here)
+};
+
+/* PLACEHOLDER: connect the page to your controller here.
+   Called about 10 times a second with the latest sensor-based estimate:
+     e.ok    true if there is light to measure
+     e.az    sun azimuth  (degrees, same convention as CFG.sensors)
+     e.el    sun elevation (degrees)
+     e.ew    (E-W)/(E+W), from -1 (west brighter) to +1 (east brighter)
+     e.sky   'Dark' | 'Direct light' | 'Diffuse (cloudy)'
+     e.move  'east' | 'west' | 'hold' | 'flat' | 'none'   (preview, uses CFG.deadband)
+     e.peak  strongest sensor, 0..1
+     e.demo  true if the numbers are from Demo mode, NOT from the sensors
+   Example: send it to the ESP32 over serial/WebSocket, log it, or forward it to another page. */
+const HOOKS={
+  onEstimate(e){ /* TODO: your code here */ }
+};
+/* ==================================================================================== */
+
+const D=Math.PI/180;
+const N=CFG.sensors.length;
+const S=CFG.sensors.map(([a,e])=>[Math.cos(e*D)*Math.sin(a*D),Math.sin(e*D),Math.cos(e*D)*Math.cos(a*D)]);
+const val=Array(N).fill(0),sm=Array(N).fill(0),raw=Array(N).fill(NaN);
+let off=CFG.offset.slice();          // dark offsets (counts)
+let last=-1e9,src='idle',connected=false,demoOn=P.get('demo')==='1',cnt=0,hz=0,hzT=0,zeroing=null;
+const $=id=>document.getElementById(id);
+
+try{const z=JSON.parse(localStorage.getItem('dome5-zero')||'null');if(Array.isArray(z)&&z.length===N&&z.every(Number.isFinite))off=z}catch(_){}
+
+/* every reading from the ESP32 ends up here */
+function applyReadings(a){
+  for(let i=0;i<N;i++){
+    raw[i]=a[i];const f=CFG.adc-off[i];
+    val[i]=Math.max(0,Math.min(1,CFG.gain[i]*(a[i]-off[i])/(f>1?f:1)));
+  }
+  last=performance.now();cnt++;
+  if(zeroing){
+    for(let i=0;i<N;i++)zeroing.sum[i]+=a[i];zeroing.n++;
+    if(last>=zeroing.end){
+      off=zeroing.sum.map(s=>s/zeroing.n);zeroing=null;
+      try{localStorage.setItem('dome5-zero',JSON.stringify(off))}catch(_){}
+    }
+  }
+}
+window.setSensors=a=>{src='api';applyReadings(a)};
+addEventListener('message',e=>{const s=e.data&&e.data.sensors;if(s&&s.length>=N){src='postMessage';applyReadings(s)}});
+try{new BroadcastChannel('dome-sensor').onmessage=e=>{const s=e.data&&(e.data.sensors||e.data);if(s&&s.length>=N){src='broadcast';applyReadings(s)}}}catch(_){}
+
+/* PLACEHOLDER: if your ESP32 prints a different line format, change the parsing here. */
+function parse(l,name){
+  l=String(l).trim();if(!l)return;
+  let a;try{const j=JSON.parse(l);a=Array.isArray(j)?j:(j&&(j.s||j.sensors))}catch(_){a=l.split(/[\s,;]+/).map(Number)}
+  if(a&&a.length>=N&&a.slice(0,N).every(Number.isFinite)){src=name;applyReadings(a)}   // boot messages etc. are ignored
+}
+async function connectSerial(){
+  try{
+    const port=await navigator.serial.requestPort();await port.open({baudRate:CFG.baud});
+    connected=true;
+    const dec=new TextDecoderStream();port.readable.pipeTo(dec.writable);
+    const rd=dec.readable.getReader();let buf='';
+    for(;;){const {value,done}=await rd.read();if(done)break;buf+=value;let i;
+      while((i=buf.indexOf('\n'))>=0){parse(buf.slice(0,i),'USB serial');buf=buf.slice(i+1)}
+      if(buf.length>2000)buf=''}
+  }catch(err){console.warn('Serial:',err);alert('Serial problem: '+err.message+'\n\nClose the Arduino Serial Monitor / PlatformIO monitor if it is open (only one program can use the port).')}
+  connected=false;
+}
+function connectWS(url){
+  if(!url)return;let ws;
+  const open=()=>{ws=new WebSocket(url);ws.onopen=()=>{connected=true};ws.onmessage=e=>parse(e.data,'WebSocket');ws.onclose=()=>{connected=false;setTimeout(open,2000)}};
+  open();
+}
+$('bs').disabled=!('serial' in navigator);if($('bs').disabled)$('bs').title='Web Serial needs Chrome or Edge';
+$('bs').onclick=connectSerial;
+$('bw').onclick=()=>connectWS(prompt('WebSocket URL',CFG.wsDefault));
+$('bz').onclick=()=>{
+  if(performance.now()-last>2500){alert('No live data yet. Connect the ESP32 first, cover the dome completely, then press Zero.');return}
+  zeroing={end:performance.now()+1000,sum:Array(N).fill(0),n:0};
+};
+$('br').onclick=()=>{off=CFG.offset.slice();try{localStorage.removeItem('dome5-zero')}catch(_){}};
+$('bd').onclick=()=>{demoOn=!demoOn;$('bd').classList.toggle('on',demoOn)};
+$('bd').classList.toggle('on',demoOn);
+if(CFG.ws)connectWS(CFG.ws);
+if(P.get('hud')==='0')$('hud').classList.add('hide');
+addEventListener('keydown',e=>{if(e.key==='h'||e.key==='H')$('hud').classList.toggle('hide')});
+$('bars').innerHTML='<div><i></i></div>'.repeat(N);const bars=[...$('bars').querySelectorAll('i')];
+$('names').innerHTML=CFG.names.map((n,i)=>`<span>S${i+1} ${n}</span>`).join('');
+
+/* ---------- light direction ----------
+   A photodiode under a diffuser reads roughly  cos(angle between sensor and light).
+   So  reading_i = S_i . L  (when the sensor faces the light), where L is the light direction.
+   With 5 sensors a plain "weighted average" of directions is badly biased towards the top
+   (about 30 deg error in a model test), so we solve for L directly with least squares,
+   using only the sensors that actually see light. */
+function det3(m){return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0])}
+function solveDir(act){
+  const A=[[0,0,0],[0,0,0],[0,0,0]],b=[0,0,0];
+  for(const i of act)for(let r=0;r<3;r++){b[r]+=S[i][r]*sm[i];for(let c=0;c<3;c++)A[r][c]+=S[i][r]*S[i][c]}
+  const d=det3(A);if(Math.abs(d)<1e-3)return null;
+  const x=[0,0,0];
+  for(let k=0;k<3;k++){const M=A.map((row,r)=>row.map((v,c)=>c===k?b[r]:v));x[k]=det3(M)/d}
+  return x;
+}
+
+/* ---------- Demo mode (only when you press "Demo"; never uses the mouse) ---------- */
+function demo(t){
+  const az=(t*28)%360,el=40+28*Math.sin(t*.45);
+  const s=[Math.cos(el*D)*Math.sin(az*D),Math.sin(el*D),Math.cos(el*D)*Math.cos(az*D)];
+  for(let i=0;i<N;i++){val[i]=Math.max(0,S[i][0]*s[0]+S[i][1]*s[1]+S[i][2]*s[2]);raw[i]=NaN}
+}
+
+
+/* ---------- camera controls (mouse only; Blender-style) ----------
+   These change only how the model is VIEWED. They do not touch the sensor readings,
+   the sun estimate or the controller hook, and they never create a sun. */
+const cam={yaw:CFG.view.yaw,pitch:CFG.view.pitch,zoom:1,px:0,py:0};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resetView(){cam.yaw=CFG.view.yaw;cam.pitch=CFG.view.pitch;cam.zoom=1;cam.px=0;cam.py=0}
+$('bv').onclick=resetView;
+{
+  const cvEl=document.getElementById('bg'),ptrs=new Map();let mode=null,pinch0=0;
+  cvEl.addEventListener('contextmenu',e=>e.preventDefault());
+  cvEl.addEventListener('dblclick',resetView);
+  cvEl.addEventListener('pointerdown',e=>{
+    cvEl.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);mode='pinch'}
+    else mode=(e.button===2||e.shiftKey)?'pan':e.ctrlKey?'zoom':'orbit';
+    cvEl.classList.add('drag');
+  });
+  cvEl.addEventListener('pointermove',e=>{
+    const p=ptrs.get(e.pointerId);if(!p)return;
+    const dx=e.clientX-p.x,dy=e.clientY-p.y;
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(mode==='pinch'&&ptrs.size===2){
+      const [a,b]=[...ptrs.values()],d=Math.hypot(a.x-b.x,a.y-b.y);
+      if(pinch0>0)cam.zoom=clamp(cam.zoom*d/pinch0,.25,5);
+      pinch0=d;cam.px+=dx*dpr/2;cam.py+=dy*dpr/2;
+    }
+    else if(mode==='orbit'){cam.yaw+=dx*.4;cam.pitch=clamp(cam.pitch+dy*.4,-90,90)}
+    else if(mode==='pan'){cam.px+=dx*dpr;cam.py+=dy*dpr}
+    else if(mode==='zoom'){cam.zoom=clamp(cam.zoom*Math.exp(-dy*.008),.25,5)}
+  });
+  const end=e=>{ptrs.delete(e.pointerId);if(ptrs.size===0){mode=null;cvEl.classList.remove('drag')}else if(ptrs.size===1)mode='orbit'};
+  cvEl.addEventListener('pointerup',end);cvEl.addEventListener('pointercancel',end);
+  cvEl.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const k=e.deltaMode===1?16:1;
+    cam.zoom=clamp(cam.zoom*Math.exp(-e.deltaY*k*(e.ctrlKey?.01:.0015)),.25,5);
+  },{passive:false});
+}
+
+/* ---------- renderer ---------- */
+const cv=$('bg'),c=cv.getContext('2d',{alpha:false});
+let W,H,dpr,pts=[],hudT=0;
+const est={az:0,el:0,pw:0,ok:false,approx:false,ew:0,sky:'Dark',move:'none',vx:0,vy:1,vz:0};
+const DB=6,LB=4,bk=Array.from({length:DB*LB},()=>[]);
+function size(){
+  dpr=Math.min(devicePixelRatio||1,1.5);W=cv.width=innerWidth*dpr;H=cv.height=innerHeight*dpr;
+  const n=innerWidth<700?420:700;pts=[];
+  for(let i=0;i<n;i++){const y=1-2*(i+.5)/n,r=Math.sqrt(1-y*y),th=i*2.399963;pts.push([Math.cos(th)*r,y,Math.sin(th)*r])}
+}
+size();addEventListener('resize',size);
+
+function draw(ts){
+  const t=ts/1000,live=ts-last<2500;
+  let isDemo=false;
+  if(live){/* values already set by applyReadings */}
+  else if(demoOn){isDemo=true;src='demo';demo(t)}
+  else{val.fill(0);src=connected?'waiting':'idle'}
+
+  let tot=0,mxv=0;
+  for(let i=0;i<N;i++){sm[i]+=(val[i]-sm[i])*.15;tot+=sm[i];if(sm[i]>mxv)mxv=sm[i]}
+
+  /* direction estimate (from sensors only) */
+  est.ok=false;est.approx=false;
+  if(mxv>CFG.minLight){
+    const thr=Math.max(CFG.minLight,.08*mxv),act=[];
+    for(let i=0;i<N;i++)if(sm[i]>thr)act.push(i);
+    let v=act.length>=3?solveDir(act):null;
+    if(!v){ // too few sensors lit: fall back to the plain weighted average (approximate)
+      v=[0,0,0];for(let i=0;i<N;i++)for(let k=0;k<3;k++)v[k]+=sm[i]*S[i][k];est.approx=true}
+    const mag=Math.hypot(v[0],v[1],v[2]);
+    if(mag>1e-4){
+      est.vx=v[0]/mag;est.vy=v[1]/mag;est.vz=v[2]/mag;est.ok=true;
+      est.az=(Math.atan2(est.vx,est.vz)/D+360)%360;
+      est.el=Math.asin(Math.max(-1,Math.min(1,est.vy)))/D;
+    }
+  }
+  est.pw=Math.min(1,mxv);
+
+  /* controller signals from the presentation: (E-W)/(E+W) and diffuse-sky check */
+  const E=sm[CFG.east],Wv=sm[CFG.west];
+  est.ew=(E+Wv)>CFG.minLight?(E-Wv)/(E+Wv):0;
+  let rmx=0,rmn=1;for(const i of CFG.ring){rmx=Math.max(rmx,sm[i]);rmn=Math.min(rmn,sm[i])}
+  est.sky=mxv<=CFG.minLight?'Dark':((rmx-rmn)/rmx<CFG.cloud?'Diffuse (cloudy)':'Direct light');
+  est.move=est.sky==='Dark'?'none':est.sky==='Diffuse (cloudy)'?'flat':(Math.abs(est.ew)<CFG.deadband?'hold':(est.ew>0?'east':'west'));
+
+  const gHue=(350+55*est.pw)%360;
+  c.globalCompositeOperation='source-over';c.fillStyle='#05050a';c.fillRect(0,0,W,H);
+  const X=W*.5+cam.px,Y=H*.5+cam.py,R=Math.min(W,H)*.3*cam.zoom;
+  const g=c.createRadialGradient(X,Y,R*.1,X,Y,R*2.6);
+  g.addColorStop(0,`hsla(${gHue},85%,38%,${.3+.25*est.pw})`);g.addColorStop(1,'hsla(0,0%,0%,0)');
+  c.fillStyle=g;c.fillRect(0,0,W,H);
+  c.globalCompositeOperation='lighter';
+
+  /* camera (moved only by the mouse handlers below; no auto-rotation) */
+  const ay=cam.yaw*D,ax=cam.pitch*D,cy=Math.cos(ay),sy=Math.sin(ay),cx=Math.cos(ax),sx=Math.sin(ax);
+  const proj=(x,y,z)=>{const x1=x*cy+z*sy,z1=-x*sy+z*cy,y2=y*cx-z1*sx,z2=y*sx+z1*cx,k=2.4/(2.4-z2);return[X+x1*R*k,Y-y2*R*k,z2,k]};
+
+  for(const b of bk)b.length=0;
+  for(const p of pts){
+    let L=0;for(let i=0;i<N;i++){const d=p[0]*S[i][0]+p[1]*S[i][1]+p[2]*S[i][2];if(d>0)L+=sm[i]*Math.pow(d,6)}
+    L=Math.min(1,L*1.3);
+    const q=proj(p[0],p[1],p[2]);
+    let d=(q[2]+1)/2;if(p[1]<0){d*=.55;L=0}
+    bk[Math.min(DB-1,(d*DB)|0)*LB+Math.min(LB-1,(L*LB)|0)].push(q[0],q[1]);
+  }
+  for(let db=0;db<DB;db++)for(let lb=0;lb<LB;lb++){
+    const a=bk[db*LB+lb];if(!a.length)continue;
+    const d=(db+.5)/DB,l=lb/(LB-1),s=(.8+d*2+l*1.4)*dpr;
+    c.fillStyle=`hsla(${(350+55*l)%360},90%,${45+d*22+l*14}%,${.12+d*.5+l*.38})`;
+    c.beginPath();for(let j=0;j<a.length;j+=2){c.moveTo(a[j]+s,a[j+1]);c.arc(a[j],a[j+1],s,0,6.283)}c.fill();
+  }
+
+  /* ground ring with azimuth marks, so the sun direction can be read off */
+  c.strokeStyle=`hsla(${gHue},90%,65%,.28)`;c.lineWidth=1.2*dpr;c.beginPath();
+  for(let k=0;k<=72;k++){const a=k*5*D,q=proj(Math.sin(a),0,Math.cos(a));k?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1])}
+  c.stroke();
+  c.font=`${11*dpr}px system-ui,sans-serif`;c.textAlign='center';c.fillStyle='rgba(234,234,245,.4)';
+  for(const a of [0,90,180,270]){const q=proj(Math.sin(a*D)*1.14,0,Math.cos(a*D)*1.14);c.fillText(a+'°',q[0],q[1]+4*dpr)}
+
+  /* sensor nodes */
+  for(let i=0;i<N;i++){
+    const q=proj(S[i][0]*1.02,S[i][1]*1.02,S[i][2]*1.02),front=q[2]>-.15,v=sm[i];
+    const a=front?1:.3,r=(5+v*10)*dpr;
+    c.strokeStyle=`hsla(${(350+55*v)%360},95%,${60+v*20}%,${(.45+v*.5)*a})`;c.lineWidth=1.5*dpr;
+    c.beginPath();c.arc(q[0],q[1],r,0,6.283);c.stroke();
+    c.fillStyle=`hsla(${(350+55*v)%360},100%,${70+v*20}%,${(.4+v*.6)*a})`;
+    c.beginPath();c.arc(q[0],q[1],(2+v*3.5)*dpr,0,6.283);c.fill();
+    if(front){c.fillStyle=`rgba(234,234,245,${.55*a})`;c.fillText('S'+(i+1)+' '+CFG.names[i],q[0],q[1]-r-5*dpr)}
+  }
+
+  /* the sun: position comes from the sensors only */
+  if(est.ok){
+    const o=proj(0,0,0),q=proj(est.vx*1.45,est.vy*1.45,est.vz*1.45),h=(40+10*est.pw);
+    c.strokeStyle=`hsla(${h},100%,70%,${est.approx?.25:.5})`;c.lineWidth=1.5*dpr;c.setLineDash([4*dpr,5*dpr]);
+    c.beginPath();c.moveTo(o[0],o[1]);c.lineTo(q[0],q[1]);c.stroke();c.setLineDash([]);
+    const sg=c.createRadialGradient(q[0],q[1],0,q[0],q[1],R*.35);
+    sg.addColorStop(0,`hsla(${h},100%,85%,${.35+.5*est.pw})`);sg.addColorStop(1,`hsla(${h},100%,60%,0)`);
+    c.fillStyle=sg;c.fillRect(q[0]-R*.4,q[1]-R*.4,R*.8,R*.8);
+    c.fillStyle=`hsla(${h},100%,92%,.95)`;c.beginPath();c.arc(q[0],q[1],5*dpr,0,6.283);c.fill();
+    c.fillStyle='rgba(255,236,170,.9)';
+    c.fillText((isDemo?'demo sun ':'sun ')+(est.el>85?'':est.az.toFixed(0)+'° / ')+est.el.toFixed(0)+'°',q[0],q[1]-12*dpr);
+  }
+  const o=proj(0,0,0);
+  const cg=c.createRadialGradient(o[0],o[1],0,o[0],o[1],R*.4);
+  cg.addColorStop(0,'hsla(190,100%,85%,.4)');cg.addColorStop(1,'hsla(190,100%,50%,0)');
+  c.fillStyle=cg;c.fillRect(o[0]-R*.4,o[1]-R*.4,R*.8,R*.8);
+
+  /* HUD (10 fps) */
+  if(ts-hudT>100){hudT=ts;
+    if(ts-hzT>1000){hz=Math.round(cnt*1000/(ts-hzT));cnt=0;hzT=ts}
+    $('m').className=isDemo?'demo':'';
+    $('m').textContent=isDemo?'DEMO — not from the sensors':src==='idle'?'No sensor data':src==='waiting'?'Connected · waiting for data':'Live · '+src+' · '+hz+' Hz'+(zeroing?' · zeroing...':'');
+    $('r').textContent=est.ok?`Sun  az ${est.el>85?'—':est.az.toFixed(0)+'°'}   el ${est.el.toFixed(0)}°   peak ${(est.pw*100).toFixed(0)}%${est.approx?'  (approx)':''}`:(src==='idle'?'Connect the ESP32 (USB serial)':'Dark — no light detected');
+    $('e').textContent=`E−W error ${est.ew>=0?'+':''}${est.ew.toFixed(2)}   ·   ${est.sky}`;
+    $('t').textContent=`Tilt preview: ${est.move==='east'?'toward East':est.move==='west'?'toward West':est.move==='flat'?'near flat (cloudy)':est.move==='hold'?'hold (inside deadband)':'—'}`;
+    bars.forEach((b,i)=>b.style.height=Math.max(2,sm[i]*40)+'px');
+    $('raw').textContent=isDemo||src==='idle'?'':'raw: '+raw.map(v=>Number.isFinite(v)?Math.round(v):'-').join('  ');
+    try{HOOKS.onEstimate({ok:est.ok,az:est.az,el:est.el,ew:est.ew,sky:est.sky,move:est.move,peak:est.pw,demo:isDemo})}catch(err){console.warn('HOOKS.onEstimate:',err)}
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
