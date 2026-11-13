@@ -1,5 +1,4 @@
 # Light-Adaptive Solar Panel System: Dome Sensor Solar Tracker
-> **RV College of Engineering®** | Experiential Learning (EL) Phase-II  
 > **Theme:** IoT and Embedded Systems  
 > **Track:** Solar Tracking & Renewable Energy Automation
 
