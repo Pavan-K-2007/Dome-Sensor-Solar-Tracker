@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3D Model Viewer · 9-Sensor Dome Enclosure</title>
+<style>
+:root {
+  --bg-dark: #07090e;
+  --panel-bg: rgba(13, 17, 26, 0.82);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #f59e0b;
+  --accent-glow: rgba(245, 158, 11, 0.4);
+  --accent-cyan: #38bdf8;
+  --accent-green: #10b981;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg-dark);
+  font-family: var(--font-sans);
+  color: var(--text-main);
+  overflow: hidden;
+  user-select: none;
+}
+
+canvas#viewport {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  cursor: grab; touch-action: none; z-index: 1;
+}
+canvas#viewport.drag { cursor: grabbing; }
+
+/* Top Header */
+header {
+  position: fixed; top: 0; left: 0; right: 0; height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; z-index: 10; pointer-events: none;
+  background: linear-gradient(180deg, rgba(7, 9, 14, 0.94) 0%, rgba(7, 9, 14, 0.5) 85%, transparent 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+header > * { pointer-events: auto; }
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+.brand-icon svg { width: 18px; height: 18px; fill: #fff; }
+.brand-title h1 { font-size: 14px; font-weight: 700; text-transform: uppercase; color: #fff; }
+.brand-title p { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+.top-actions { display: flex; gap: 10px; align-items: center; }
+.btn {
+  font: 600 12px var(--font-sans); color: var(--text-main);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--panel-border); border-radius: 8px;
+  padding: 7px 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.2s; backdrop-filter: blur(8px);
+}
+.btn:hover { background: rgba(255, 255, 255, 0.14); border-color: var(--accent); color: #fff; }
+.btn.primary { background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: #000; font-weight: 700; }
+.btn.primary:hover { box-shadow: 0 0 16px var(--accent-glow); color: #000; }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+/* Side Drawer (Technical Spec & Sensor Angles) */
+.side-drawer {
+  position: fixed; top: 72px; right: 20px; width: 330px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 14px; padding: 16px; z-index: 10;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  max-height: calc(100vh - 96px); overflow-y: auto;
+}
+.drawer-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--accent);
+  margin-bottom: 12px; padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.spec-table {
+  width: 100%; border-collapse: collapse; font-size: 11px;
+  font-family: var(--font-mono); margin-bottom: 16px;
+}
+.spec-table tr { border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
+.spec-table td { padding: 5px 0; }
+.spec-table td.label { color: var(--text-muted); }
+.spec-table td.val { text-align: right; color: #fff; font-weight: 600; }
+
+.sensor-list {
+  display: flex; flex-direction: column; gap: 6px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.sensor-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 8px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.sensor-item.zenith { border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.08); }
+.sensor-name { font-weight: 600; color: #fff; }
+.sensor-angles { color: var(--accent-cyan); }
+
+/* Bottom Print Tips Banner */
+.bottom-banner {
+  position: fixed; bottom: 16px; left: 20px; right: 370px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 12px 18px; z-index: 10;
+  backdrop-filter: blur(14px);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.print-tip {
+  display: flex; gap: 14px; font-size: 12px; color: var(--text-muted);
+}
+.tip-item strong { color: #fff; font-family: var(--font-mono); }
+
+.controls-hint {
+  font-size: 11px; color: var(--text-muted);
+  display: flex; gap: 8px; align-items: center;
+}
+.controls-hint kbd {
+  background: rgba(255, 255, 255, 0.12); padding: 1px 6px; border-radius: 4px;
+  color: #fff; font-family: var(--font-mono); font-size: 10px;
+}
+
+@media (max-width: 900px) {
+  .side-drawer { width: calc(100% - 40px); top: auto; bottom: 80px; max-height: 40vh; }
+  .bottom-banner { display: none; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="viewport"></canvas>
+
+<header>
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    </div>
+    <div class="brand-title">
+      <h1>9-Sensor Dome 3D CAD Preview</h1>
+      <p>Hollow Hemispherical Enclosure · 3D Printable STL</p>
+    </div>
+  </div>
+
+  <div class="top-actions">
+    <a href="dome_sensor_9.stl" download="dome_sensor_9.stl" class="btn primary" id="btn-download">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Download STL File (6.15 MB)
+    </a>
+    <a href="dome_sensor_9.scad" download="dome_sensor_9.scad" class="btn" title="Parametric OpenSCAD Source File">
+      OpenSCAD Script (.scad)
+    </a>
+    <button class="btn" id="btn-toggle-wire">Wireframe</button>
+    <button class="btn" id="btn-reset">Reset View</button>
+  </div>
+</header>
+
+<!-- Right Drawer -->
+<div class="side-drawer">
+  <div class="drawer-title">
+    <span>CAD Specifications</span>
+    <span style="font-size:10px;color:var(--accent-green);border:1px solid rgba(16,185,129,0.3);padding:1px 5px;border-radius:4px;">READY TO SLICE</span>
+  </div>
+
+  <table class="spec-table">
+    <tr><td class="label">Dome Outer Diameter</td><td class="val">70.0 mm</td></tr>
+    <tr><td class="label">Dome Wall Thickness</td><td class="val">3.2 mm</td></tr>
+    <tr><td class="label">Inner Cavity Diameter</td><td class="val">63.6 mm</td></tr>
+    <tr><td class="label">Mounting Base Diameter</td><td class="val">88.0 mm</td></tr>
+    <tr><td class="label">Base Flange Height</td><td class="val">3.5 mm</td></tr>
+    <tr><td class="label">Mounting Bolts</td><td class="val">4× M3 (PCD 78 mm)</td></tr>
+    <tr><td class="label">Bottom Wiring Hole</td><td class="val">Ø 28.0 mm</td></tr>
+    <tr><td class="label">Photodiode Compatibility</td><td class="val">BPW34 / 5mm</td></tr>
+    <tr><td class="label">Sensor Aperture Hole</td><td class="val">Ø 6.4 mm</td></tr>
+  </table>
+
+  <div class="drawer-title">
+    <span>9 Photodiode Coordinates</span>
+    <span style="font-size:10px;color:var(--text-muted)">AZIMUTH / ELEV.</span>
+  </div>
+
+  <div class="sensor-list">
+    <div class="sensor-item zenith">
+      <span class="sensor-name">S1 · Zenith (Top)</span>
+      <span class="sensor-angles">0° Az / 90° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S2 · North</span>
+      <span class="sensor-angles">0° Az / 60° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S3 · East</span>
+      <span class="sensor-angles">90° Az / 60° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S4 · South</span>
+      <span class="sensor-angles">180° Az / 60° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S5 · West</span>
+      <span class="sensor-angles">270° Az / 60° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S6 · North-East</span>
+      <span class="sensor-angles">45° Az / 30° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S7 · South-East (Sunrise)</span>
+      <span class="sensor-angles">135° Az / 30° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S8 · South-West (Sunset)</span>
+      <span class="sensor-angles">225° Az / 30° El</span>
+    </div>
+    <div class="sensor-item">
+      <span class="sensor-name">S9 · North-West</span>
+      <span class="sensor-angles">315° Az / 30° El</span>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Banner -->
+<div class="bottom-banner">
+  <div class="print-tip">
+    <div class="tip-item"><strong>Orientation:</strong> Flat base down (0° overhang)</div>
+    <div class="tip-item"><strong>Material:</strong> PLA / PETG / ABS</div>
+    <div class="tip-item"><strong>Layer Height:</strong> 0.20 mm</div>
+    <div class="tip-item"><strong>Infill:</strong> 20% - 30% Gyroid</div>
+    <div class="tip-item"><strong>Supports:</strong> None needed (Self-supporting)</div>
+  </div>
+
+  <div class="controls-hint">
+    <span><kbd>Drag</kbd> Orbit</span>
+    <span><kbd>Shift+Drag</kbd> Pan</span>
+    <span><kbd>Scroll</kbd> Zoom</span>
+  </div>
+</div>
+
+<script>
+// =============================================================================
+// INTERACTIVE 3D VIEWER (Canvas 3D Mesh Engine)
+// =============================================================================
+
+const cv = document.getElementById('viewport');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.width = window.innerWidth * dpr;
+  H = cv.height = window.innerHeight * dpr;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// 3D Camera State
+const cam = { yaw: 35, pitch: 28, dist: 150, px: -40, py: 20 };
+let showWire = false;
+
+// 9 Sensors definition
+const D2R = Math.PI / 180;
+const SENSORS = [
+  { id: 'S1', name: 'Zenith', az: 0,   el: 90 },
+  { id: 'S2', name: 'North',  az: 0,   el: 60 },
+  { id: 'S3', name: 'East',   az: 90,  el: 60 },
+  { id: 'S4', name: 'South',  az: 180, el: 60 },
+  { id: 'S5', name: 'West',   az: 270, el: 60 },
+  { id: 'S6', name: 'NE',     az: 45,  el: 30 },
+  { id: 'S7', name: 'SE',     az: 135, el: 30 },
+  { id: 'S8', name: 'SW',     az: 225, el: 30 },
+  { id: 'S9', name: 'NW',     az: 315, el: 30 }
+];
+
+// Generate visual mesh geometry for real-time smooth inspection
+const R_OUTER = 35.0;
+const R_FLANGE = 44.0;
+const H_FLANGE = 3.5;
+
+// Construct 3D wireframe / polygon shell
+const rings = 24, segs = 48;
+const vertices = [];
+const faces = [];
+
+// Dome vertices
+for (let r = 0; r <= rings; r++) {
+  const phi = (r / rings) * (Math.PI / 2); // 0 (zenith) to PI/2 (equator)
+  const z = R_OUTER * Math.cos(phi);
+  const rad = R_OUTER * Math.sin(phi);
+
+  for (let s = 0; s < segs; s++) {
+    const theta = (s / segs) * Math.PI * 2;
+    const x = rad * Math.sin(theta);
+    const y = rad * Math.cos(theta);
+    vertices.push([x, y, z]);
+  }
+}
+
+// Flange vertices
+for (let s = 0; s < segs; s++) {
+  const theta = (s / segs) * Math.PI * 2;
+  const x = R_FLANGE * Math.sin(theta);
+  const y = R_FLANGE * Math.cos(theta);
+  vertices.push([x, y, H_FLANGE]);
+  vertices.push([x, y, 0]);
+}
+
+// Generate quads/triangles
+for (let r = 0; r < rings; r++) {
+  for (let s = 0; s < segs; s++) {
+    const i0 = r * segs + s;
+    const i1 = r * segs + ((s + 1) % segs);
+    const i2 = (r + 1) * segs + ((s + 1) % segs);
+    const i3 = (r + 1) * segs + s;
+    faces.push([i0, i1, i2, i3]);
+  }
+}
+
+// Projection function
+function project(x, y, z) {
+  const cx = W / 2 + cam.px * dpr;
+  const cy = H / 2 + cam.py * dpr;
+  const scale = (Math.min(W, H) / cam.dist) * 1.5;
+
+  const yrad = cam.yaw * D2R, prad = cam.pitch * D2R;
+  const cosY = Math.cos(yrad), sinY = Math.sin(yrad);
+  const cosP = Math.cos(prad), sinP = Math.sin(prad);
+
+  // Orbit rotation
+  const x1 = x * cosY - y * sinY;
+  const y1 = x * sinY + y * cosY;
+
+  const y2 = y1 * cosP - z * sinP;
+  const z2 = y1 * sinP + z * cosP;
+
+  // Perspective
+  const fov = 280;
+  const depth = fov / (fov + y2);
+
+  return [
+    cx + x1 * scale * depth,
+    cy - z2 * scale * depth,
+    y2
+  ];
+}
+
+function render() {
+  ctx.fillStyle = '#07090e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Background celestial grid
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.lineWidth = 1 * dpr;
+  const gridSize = 100, step = 20;
+  for (let g = -gridSize; g <= gridSize; g += step) {
+    const p1 = project(g, -gridSize, 0);
+    const p2 = project(g, gridSize, 0);
+    ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.stroke();
+    const p3 = project(-gridSize, g, 0);
+    const p4 = project(gridSize, g, 0);
+    ctx.beginPath(); ctx.moveTo(p3[0], p3[1]); ctx.lineTo(p4[0], p4[1]); ctx.stroke();
+  }
+
+  // Ground compass ring
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.25)';
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.beginPath();
+  for (let a = 0; a <= 360; a += 5) {
+    const ar = a * D2R;
+    const p = project(Math.sin(ar) * 52, Math.cos(ar) * 52, 0);
+    if (a === 0) ctx.moveTo(p[0], p[1]);
+    else ctx.lineTo(p[0], p[1]);
+  }
+  ctx.stroke();
+
+  // Cardinal markers
+  const cardinals = [
+    { label: 'NORTH (0°)', x: 0, y: 58 },
+    { label: 'EAST (90°)', x: 58, y: 0 },
+    { label: 'SOUTH (180°)', x: 0, y: -58 },
+    { label: 'WEST (270°)', x: -58, y: 0 }
+  ];
+  ctx.font = `600 ${11 * dpr}px var(--font-mono)`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.6)';
+  for (const c of cardinals) {
+    const p = project(c.x, c.y, 0);
+    ctx.fillText(c.label, p[0], p[1] + 4 * dpr);
+  }
+
+  // Draw 3D Dome Facets (Sorted by camera depth)
+  const projectedVerts = vertices.map(v => project(v[0], v[1], v[2]));
+  const sortedFaces = faces.map(f => {
+    const d = (projectedVerts[f[0]][2] + projectedVerts[f[1]][2] + projectedVerts[f[2]][2] + projectedVerts[f[3]][2]) / 4;
+    return { f, d };
+  }).sort((a, b) => b.d - a.d);
+
+  for (const item of sortedFaces) {
+    const f = item.f;
+    const p0 = projectedVerts[f[0]];
+    const p1 = projectedVerts[f[1]];
+    const p2 = projectedVerts[f[2]];
+    const p3 = projectedVerts[f[3]];
+
+    // Lighting calculation
+    const v0 = vertices[f[0]], v1 = vertices[f[1]], v2 = vertices[f[2]];
+    const ax = v1[0] - v0[0], ay = v1[1] - v0[1], az = v1[2] - v0[2];
+    const bx = v2[0] - v0[0], by = v2[1] - v0[1], bz = v2[2] - v0[2];
+    let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len > 0) { nx /= len; ny /= len; nz /= len; }
+
+    const light = Math.max(0.08, (nx * 0.4 + ny * 0.3 + nz * 0.8));
+
+    ctx.fillStyle = showWire ? 'rgba(15, 23, 42, 0.4)' : `rgb(${Math.round(20 + 35 * light)}, ${Math.round(28 + 45 * light)}, ${Math.round(48 + 65 * light)})`;
+    ctx.strokeStyle = showWire ? 'rgba(56, 189, 248, 0.6)' : `rgba(255, 255, 255, ${0.05 + 0.1 * light})`;
+    ctx.lineWidth = 0.8 * dpr;
+
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p1[0], p1[1]);
+    ctx.lineTo(p2[0], p2[1]);
+    ctx.lineTo(p3[0], p3[1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Draw 9 Sensor Ports with Orientation Normal Rays
+  for (const s of SENSORS) {
+    const azR = s.az * D2R, elR = s.el * D2R;
+    const nx = Math.cos(elR) * Math.sin(azR);
+    const ny = Math.cos(elR) * Math.cos(azR);
+    const nz = Math.sin(elR);
+
+    const sx = nx * R_OUTER, sy = ny * R_OUTER, sz = nz * R_OUTER;
+    const ex = nx * (R_OUTER + 12), ey = ny * (R_OUTER + 12), ez = nz * (R_OUTER + 12);
+
+    const pStart = project(sx, sy, sz);
+    const pEnd = project(ex, ey, ez);
+
+    // Normal ray
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath(); ctx.moveTo(pStart[0], pStart[1]); ctx.lineTo(pEnd[0], pEnd[1]); ctx.stroke();
+
+    // Sensor port circle
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    ctx.arc(pStart[0], pStart[1], 6 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner photodiode recess
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.arc(pStart[0], pStart[1], 2.8 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.font = `700 ${11 * dpr}px var(--font-sans)`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${s.id} ${s.name}`, pEnd[0], pEnd[1] - 6 * dpr);
+  }
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+// Mouse & Touch Controls
+let isDragging = false, lastX, lastY;
+cv.addEventListener('pointerdown', e => {
+  isDragging = true;
+  lastX = e.clientX; lastY = e.clientY;
+  cv.classList.add('drag');
+});
+
+window.addEventListener('pointermove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+
+  if (e.shiftKey || e.buttons === 2) {
+    cam.px += dx; cam.py += dy;
+  } else {
+    cam.yaw += dx * 0.5;
+    cam.pitch = Math.max(-10, Math.min(85, cam.pitch + dy * 0.5));
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  isDragging = false;
+  cv.classList.remove('drag');
+});
+
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam.dist = Math.max(60, Math.min(300, cam.dist + e.deltaY * 0.15));
+}, { passive: false });
+
+// UI Action Handlers
+document.getElementById('btn-reset').onclick = () => {
+  cam.yaw = 35; cam.pitch = 28; cam.dist = 150; cam.px = -40; cam.py = 20;
+};
+
+document.getElementById('btn-toggle-wire').onclick = function() {
+  showWire = !showWire;
+  this.style.borderColor = showWire ? 'var(--accent)' : 'var(--panel-border)';
+  this.style.color = showWire ? 'var(--accent)' : 'var(--text-main)';
+};
+</script>
+</body>
+</html>

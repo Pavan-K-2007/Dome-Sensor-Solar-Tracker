@@ -116,3 +116,48 @@ If $\text{Spread} < 0.20$, light is diffuse (cloudy). The tracker stows the sola
    - Open `index.html` in Google Chrome or Microsoft Edge.
    - Click **USB Serial** and select the ESP32 COM port.
    - (Optional) Click **Demo** to preview dynamic orbital tracking without hardware.
+
+---
+
+## 🖨 3D Printable Enclosure (9 Sensors)
+
+A custom hollow hemispherical dome model has been designed for 3D printing, featuring receptacles for **9 photodiodes** (BPW34 / 5mm PIN sensors):
+
+- **Model Files:**
+  - `dome_sensor_9.stl` – Pre-generated slice-ready binary STL mesh (128k+ triangles).
+  - `dome_sensor_9.scad` – Fully parametric OpenSCAD source code.
+  - `view_3d_dome.html` – Interactive in-browser 3D CAD preview with dimensions and STL download.
+  - `generate_stl.js` – Standalone Node.js SDF generator script.
+
+### 📐 Mechanical Specifications
+| Parameter | Value | Notes |
+|---|---|---|
+| **Outer Diameter** | 70.0 mm | Compact spherical hemisphere |
+| **Wall Thickness** | 3.2 mm | Rigid structural shell |
+| **Inner Cavity** | 63.6 mm | Roomy internal wiring chamber |
+| **Mounting Flange** | 88.0 mm dia, 3.5 mm thick | Base mounting rim |
+| **Mounting Bolts** | 4× M3 holes on 78 mm PCD | Standard M3 chassis mount |
+| **Bottom Cable Port** | Ø 28.0 mm | Central opening for sensor wire bundle |
+| **Photodiode Port** | Ø 6.4 mm through-aperture | Accommodates light & leads |
+| **Sensor Recess** | 5.6 mm × 4.6 mm × 1.8 mm | Flush pocket seat for BPW34 |
+
+### 🧭 9-Sensor Coordinate Layout
+| Sensor | Orientation | Azimuth ($\theta$) | Elevation ($\phi$) | Role |
+|---|---|---|---|---|
+| **S1** | Zenith (Top) | $0^\circ$ | $90^\circ$ | Noon / Overhead sun |
+| **S2** | North | $0^\circ$ | $60^\circ$ | Upper hemisphere tracking |
+| **S3** | East | $90^\circ$ | $60^\circ$ | Morning tracking |
+| **S4** | South | $180^\circ$ | $60^\circ$ | Upper hemisphere tracking |
+| **S5** | West | $270^\circ$ | $60^\circ$ | Afternoon tracking |
+| **S6** | North-East | $45^\circ$ | $30^\circ$ | Low-angle morning transition |
+| **S7** | South-East | $135^\circ$ | $30^\circ$ | Horizon morning sunrise capture |
+| **S8** | South-West | $225^\circ$ | $30^\circ$ | Horizon evening sunset capture |
+| **S9** | North-West | $315^\circ$ | $30^\circ$ | Low-angle evening transition |
+
+### 🛠 Recommended 3D Printing Slicer Settings
+- **Print Orientation:** Flat base facing down on build plate (0° overhang, completely stable).
+- **Supports:** **None required** (self-supporting dome curvature and sensor holes).
+- **Material:** PETG or ASA (recommended for outdoor UV/weather resistance) or PLA (for indoor prototypes).
+- **Layer Height:** `0.20 mm` (or `0.16 mm` for ultra-smooth dome finish).
+- **Perimeters / Walls:** `3 to 4 walls` (ensures the 3.2 mm shell is nearly 100% solid plastic).
+- **Infill:** `20% - 30% Gyroid` or `Grid`.
