@@ -21,7 +21,7 @@
 
 // Set to 1 to receive ESP32 sensor packets wirelessly over UNO R4 WiFi SoftAP
 // (0 = Wired UART on Pin 0 RX / USB Serial; 1 = Wi-Fi Access Point + UDP 4210)
-#define USE_WIFI_UDP 0
+#define USE_WIFI_UDP 1
 
 // 0 = Stationary Central Dome (3D Least-Squares -> maps Az/El to Base & Tilt)
 // 1 = Dome Mounted ON the Moving Upper Servo (Closed-loop nulling toward S1 Top)
@@ -395,14 +395,16 @@ void setup() {
 #if USE_WIFI_UDP
   Serial.print("Starting UNO R4 WiFi Access Point: ");
   Serial.println(AP_SSID);
-  if (WiFi.beginAP(AP_SSID, AP_PASS) == WL_AP_LISTENING) {
+  WiFi.config(IPAddress(192, 168, 4, 1));
+  int status = WiFi.beginAP(AP_SSID, AP_PASS);
+  if (status == WL_AP_LISTENING) {
     udp.begin(UDP_PORT);
-    Serial.print("UDP listening on ");
+    Serial.print("Wi-Fi AP ready! IP: ");
     Serial.print(WiFi.localIP());
-    Serial.print(":");
+    Serial.print(" | UDP Port: ");
     Serial.println(UDP_PORT);
   } else {
-    Serial.println("WiFi AP failed to start; continuing on Serial1 UART.");
+    Serial.println("Wi-Fi AP failed to start. Check UNO R4 WiFi firmware.");
   }
 #endif
 
