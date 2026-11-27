@@ -148,11 +148,77 @@ header > * { pointer-events: auto; }
   letter-spacing: 1px; color: var(--text-muted);
 }
 
-/* Left Telemetry Card */
-.telemetry-card {
+/* Left Telemetry & Servo Stack */
+.left-stack {
   grid-column: 1; grid-row: 2;
   align-self: start;
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+  max-height: 100%; overflow-y: auto; scrollbar-width: none;
+}
+.left-stack::-webkit-scrollbar { display: none; }
+.telemetry-card {
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* Manual Dual-Servo Control Card */
+.servo-ctrl-card {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.mode-switch {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  background: rgba(0, 0, 0, 0.38);
+  padding: 4px; border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.mode-btn {
+  font: 700 11px var(--font-mono);
+  padding: 6px 8px; border-radius: 6px; border: none;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer; transition: all 0.18s;
+}
+.mode-btn.active-auto {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-green);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.45);
+}
+.mode-btn.active-manual {
+  background: rgba(245, 158, 11, 0.22);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.5);
+}
+.servo-slider-row {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.servo-slider-lbl {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; color: var(--text-muted);
+}
+.servo-slider-lbl b {
+  font-family: var(--font-mono); color: #fff;
+}
+.dpad-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 5px; margin-top: 2px;
+}
+.dpad-btn {
+  font: 700 11px var(--font-sans);
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px; padding: 7px 6px;
+  cursor: pointer; text-align: center;
+  transition: all 0.15s;
+}
+.dpad-btn:hover, .dpad-btn:active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tx-status {
+  font: 600 10px var(--font-mono);
+  color: var(--text-dim);
+  display: flex; justify-content: space-between;
 }
 .metric-row {
   display: flex; justify-content: space-between; align-items: baseline;
@@ -370,37 +436,87 @@ canvas#sparkline-cv { width: 100%; height: 100%; }
 <!-- HUD Overlay Panels -->
 <div class="hud-container" id="hud">
   
-  <!-- Left Column: Solar Coordinates & Sky Condition -->
-  <div class="glass-panel telemetry-card">
-    <div class="panel-header">
-      <span class="panel-title">Solar Coordinates</span>
-      <span class="metric-badge dark" id="sky-badge">DARK</span>
-    </div>
-
-    <div class="sun-coords">
-      <div class="coord-box">
-        <div class="title">Azimuth (Yaw)</div>
-        <div class="val" id="val-az">—°</div>
+  <!-- Left Column: Solar Coordinates + Manual Dual-Servo Control -->
+  <div class="left-stack">
+    <div class="glass-panel telemetry-card">
+      <div class="panel-header">
+        <span class="panel-title">Solar Coordinates</span>
+        <span class="metric-badge dark" id="sky-badge">DARK</span>
       </div>
-      <div class="coord-box">
-        <div class="title">Elevation (Pitch)</div>
-        <div class="val" id="val-el">—°</div>
+
+      <div class="sun-coords">
+        <div class="coord-box">
+          <div class="title">Azimuth (Yaw)</div>
+          <div class="val" id="val-az">—°</div>
+        </div>
+        <div class="coord-box">
+          <div class="title">Elevation (Pitch)</div>
+          <div class="val" id="val-el">—°</div>
+        </div>
+      </div>
+
+      <div class="metric-row">
+        <span class="metric-label">Peak Intensity</span>
+        <span class="metric-val" id="val-peak">0.0%</span>
+      </div>
+
+      <div class="metric-row">
+        <span class="metric-label">East-West Illum. Error</span>
+        <span class="metric-val" id="val-ew">0.00</span>
+      </div>
+
+      <div class="metric-row">
+        <span class="metric-label">Estimation Algorithm</span>
+        <span class="metric-val" id="val-method" style="font-size:12px;color:var(--accent-cyan)">Least Squares (3D)</span>
       </div>
     </div>
 
-    <div class="metric-row">
-      <span class="metric-label">Peak Intensity</span>
-      <span class="metric-val" id="val-peak">0.0%</span>
-    </div>
+    <!-- Dual-Servo Manual / Auto Web Controller -->
+    <div class="glass-panel servo-ctrl-card">
+      <div class="panel-header" style="margin-bottom:4px">
+        <span class="panel-title">Stacked Servo Control (PCA9685)</span>
+        <span class="metric-badge" id="servo-mode-badge" style="color:var(--accent-green);border:1px solid rgba(16,185,129,0.35)">AUTO</span>
+      </div>
 
-    <div class="metric-row">
-      <span class="metric-label">East-West Illum. Error</span>
-      <span class="metric-val" id="val-ew">0.00</span>
-    </div>
+      <div class="mode-switch">
+        <button class="mode-btn active-auto" id="btn-mode-auto">AUTO (SENSOR)</button>
+        <button class="mode-btn" id="btn-mode-manual">MANUAL (WEB)</button>
+      </div>
 
-    <div class="metric-row">
-      <span class="metric-label">Estimation Algorithm</span>
-      <span class="metric-val" id="val-method" style="font-size:12px;color:var(--accent-cyan)">Least Squares (3D)</span>
+      <div class="servo-slider-row">
+        <div class="servo-slider-lbl">
+          <span>Bottom Base Servo (Ch 0 · L/R)</span>
+          <b id="lbl-servo-base">90°</b>
+        </div>
+        <input type="range" class="slider" id="sl-servo-base" min="0" max="180" step="1" value="90">
+      </div>
+
+      <div class="servo-slider-row">
+        <div class="servo-slider-lbl">
+          <span>Upper Tilt Servo (Ch 1 · U/D)</span>
+          <b id="lbl-servo-tilt">90°</b>
+        </div>
+        <input type="range" class="slider" id="sl-servo-tilt" min="0" max="180" step="1" value="90">
+      </div>
+
+      <div class="dpad-grid">
+        <div></div>
+        <button class="dpad-btn" id="jog-up" title="Hold to tilt up (or Arrow Up)">▲ Up</button>
+        <div></div>
+        <button class="dpad-btn" id="jog-left" title="Hold to pan left (or Arrow Left)">◀ Left</button>
+        <button class="dpad-btn" id="jog-center" title="Center both servos to 90°">90° Ctr</button>
+        <button class="dpad-btn" id="jog-right" title="Hold to pan right (or Arrow Right)">Right ▶</button>
+        <div></div>
+        <button class="dpad-btn" id="jog-down" title="Hold to tilt down (or Arrow Down)">▼ Down</button>
+        <div></div>
+      </div>
+
+      <div class="tx-status">
+        <span id="servo-tx-lbl">Link: Connect USB Serial (or Wi-Fi AP)</span>
+        <label style="cursor:pointer;color:var(--accent-cyan)" title="Check if your laptop/phone Wi-Fi is connected directly to DomeTracker_R4 (192.168.4.1)">
+          <input type="checkbox" id="chk-wifi-direct" style="vertical-align:middle"> Wi-Fi Direct
+        </label>
+      </div>
     </div>
   </div>
 
@@ -572,15 +688,55 @@ function parse(l, name) {
   }
 }
 
-/* Web Serial Connection */
+/* Web Serial Connection (Bidirectional: Sensor RX + Servo Command TX) */
+let serialPortRef = null;
+let serialWriter = null;
+let activeWs = null;
+const textEncoder = new TextEncoder();
+
+async function sendDeviceCommand(cmdLine) {
+  const msg = cmdLine.endsWith('\n') ? cmdLine : (cmdLine + '\n');
+  let sentVia = '';
+
+  if (serialWriter) {
+    try {
+      await serialWriter.write(textEncoder.encode(msg));
+      sentVia = 'USB Serial → ESP32 → R4';
+    } catch (e) {
+      console.warn('Serial write error:', e);
+    }
+  }
+  if (activeWs && activeWs.readyState === 1) {
+    try { activeWs.send(msg); sentVia = 'WebSocket'; } catch (_) {}
+  }
+  if ($('chk-wifi-direct') && $('chk-wifi-direct').checked) {
+    const q = msg.startsWith('CMD:AUTO')
+      ? 'http://192.168.4.1/cmd?m=auto'
+      : `http://192.168.4.1/cmd?m=manual&b=${servoState.base}&t=${servoState.tilt}`;
+    fetch(q, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    sentVia = sentVia || 'Wi-Fi Direct (192.168.4.1)';
+  }
+
+  if ($('servo-tx-lbl')) {
+    $('servo-tx-lbl').textContent = sentVia
+      ? `TX: ${cmdLine.trim()} (${sentVia})`
+      : `Queued: ${cmdLine.trim()} (Connect USB or Wi-Fi)`;
+  }
+}
+
 async function connectSerial() {
   try {
     const port = await navigator.serial.requestPort();
     await port.open({ baudRate: CFG.baud });
+    serialPortRef = port;
+    if (port.writable) {
+      serialWriter = port.writable.getWriter();
+    }
     connected = true;
     updateStatusPill();
+    if ($('servo-tx-lbl')) $('servo-tx-lbl').textContent = 'Ready: USB Serial → ESP32 → R4';
     const dec = new TextDecoderStream();
-    port.readable.pipeTo(dec.writable);
+    const pipeClosed = port.readable.pipeTo(dec.writable);
     const rd = dec.readable.getReader();
     let buf = '';
     for (;;) {
@@ -594,12 +750,18 @@ async function connectSerial() {
       }
       if (buf.length > 2000) buf = '';
     }
+    await pipeClosed.catch(() => {});
   } catch (err) {
     console.warn('Serial error:', err);
     if (err.name !== 'NotFoundError') {
       alert('Serial Connection Problem: ' + err.message + '\n\nMake sure the Arduino Serial Monitor or other serial terminals are closed.');
     }
   }
+  if (serialWriter) {
+    try { serialWriter.releaseLock(); } catch (_) {}
+    serialWriter = null;
+  }
+  serialPortRef = null;
   connected = false;
   updateStatusPill();
 }
@@ -609,9 +771,10 @@ function connectWS(url) {
   let ws;
   const open = () => {
     ws = new WebSocket(url);
+    activeWs = ws;
     ws.onopen = () => { connected = true; updateStatusPill(); };
     ws.onmessage = e => parse(e.data, 'WebSocket');
-    ws.onclose = () => { connected = false; updateStatusPill(); setTimeout(open, 2000); };
+    ws.onclose = () => { connected = false; activeWs = null; updateStatusPill(); setTimeout(open, 2000); };
   };
   open();
 }
@@ -920,8 +1083,10 @@ function draw(ts) {
   est.sky = mxv <= CFG.minLight ? 'Dark' : ((rmx - rmn) / rmx < CFG.cloud ? 'Diffuse (cloudy)' : 'Direct light');
   est.move = est.sky === 'Dark' ? 'none' : est.sky === 'Diffuse (cloudy)' ? 'flat' : (Math.abs(est.ew) < CFG.deadband ? 'hold' : (est.ew > 0 ? 'east' : 'west'));
 
-  // Calculate target tilt angle for preview (-45 deg West to +45 deg East)
-  const targetTilt = est.move === 'flat' ? 0 : est.move === 'hold' ? currentPanelAngle : clamp(est.ew * 45, -45, 45);
+  // Calculate target tilt angle for preview (-45 deg West to +45 deg East, or Manual Web Tilt)
+  const targetTilt = (typeof servoState !== 'undefined' && servoState.manual)
+    ? clamp(servoState.tilt - 90, -60, 60)
+    : (est.move === 'flat' ? 0 : est.move === 'hold' ? currentPanelAngle : clamp(est.ew * 45, -45, 45));
 
   /* 3D Canvas Rendering */
   const gHue = (350 + 55 * est.pw) % 360;
@@ -1152,10 +1317,92 @@ $('cfg-minlight').oninput = e => {
   $('lbl-minlight').textContent = CFG.minLight.toFixed(3);
 };
 
-// Keyboard toggles
+/* Dual-Servo Web Manual Controller Logic */
+const servoState = {
+  manual: false,
+  base: 90,
+  tilt: 90,
+  txTimer: null
+};
+
+function setServoMode(isManual) {
+  servoState.manual = isManual;
+  $('btn-mode-auto').className   = 'mode-btn' + (!isManual ? ' active-auto' : '');
+  $('btn-mode-manual').className = 'mode-btn' + (isManual  ? ' active-manual' : '');
+  const badge = $('servo-mode-badge');
+  badge.textContent = isManual ? 'MANUAL' : 'AUTO';
+  badge.style.color = isManual ? 'var(--accent)' : 'var(--accent-green)';
+  badge.style.borderColor = isManual ? 'rgba(245,158,11,0.45)' : 'rgba(16,185,129,0.35)';
+
+  if (!isManual) {
+    sendDeviceCommand('CMD:AUTO');
+    setTimeout(() => { if (!servoState.manual) sendDeviceCommand('CMD:AUTO'); }, 80);
+  } else {
+    queueManualServoTx();
+  }
+}
+
+function queueManualServoTx() {
+  $('lbl-servo-base').textContent = `${servoState.base}°`;
+  $('lbl-servo-tilt').textContent = `${servoState.tilt}°`;
+  $('sl-servo-base').value = servoState.base;
+  $('sl-servo-tilt').value = servoState.tilt;
+
+  if (!servoState.manual) setServoMode(true);
+  if (servoState.txTimer) return;
+  servoState.txTimer = setTimeout(() => {
+    servoState.txTimer = null;
+    if (servoState.manual) {
+      sendDeviceCommand(`CMD:MANUAL,${servoState.base},${servoState.tilt}`);
+    }
+  }, 38);
+}
+
+$('btn-mode-auto').onclick   = () => setServoMode(false);
+$('btn-mode-manual').onclick = () => setServoMode(true);
+
+$('sl-servo-base').oninput = e => { servoState.base = +e.target.value; queueManualServoTx(); };
+$('sl-servo-tilt').oninput = e => { servoState.tilt = +e.target.value; queueManualServoTx(); };
+
+$('jog-center').onclick = () => {
+  servoState.base = 90; servoState.tilt = 90;
+  queueManualServoTx();
+};
+
+function bindHoldJog(btnId, dBase, dTilt) {
+  const el = $(btnId);
+  let holdInt = null;
+  const stepOnce = () => {
+    servoState.base = clamp(servoState.base + dBase, 0, 180);
+    servoState.tilt = clamp(servoState.tilt + dTilt, 0, 180);
+    queueManualServoTx();
+  };
+  const stopHold = () => { if (holdInt) { clearInterval(holdInt); holdInt = null; } };
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    stepOnce();
+    stopHold();
+    holdInt = setInterval(stepOnce, 45);
+  });
+  window.addEventListener('pointerup', stopHold);
+  window.addEventListener('pointercancel', stopHold);
+}
+
+bindHoldJog('jog-left',  -2,  0);
+bindHoldJog('jog-right', +2,  0);
+bindHoldJog('jog-up',     0, +2);
+bindHoldJog('jog-down',   0, -2);
+
+// Keyboard toggles + Arrow-Key Servo Jogging when in Manual Mode
 addEventListener('keydown', e => {
   if (e.key === 'h' || e.key === 'H') $('hud').classList.toggle('hide');
   if (e.key === 'Escape') $('modal-settings').classList.remove('open');
+  if (servoState.manual) {
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); servoState.base = clamp(servoState.base - 2, 0, 180); queueManualServoTx(); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); servoState.base = clamp(servoState.base + 2, 0, 180); queueManualServoTx(); }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); servoState.tilt = clamp(servoState.tilt + 2, 0, 180); queueManualServoTx(); }
+    if (e.key === 'ArrowDown')  { e.preventDefault(); servoState.tilt = clamp(servoState.tilt - 2, 0, 180); queueManualServoTx(); }
+  }
 });
 </script>
 </body>
