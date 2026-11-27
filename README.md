@@ -172,3 +172,14 @@ A standalone utility-scale SCADA simulator (`solar_farm.html`) models an entire 
 - **Phase 2 — Multi-Node Hardware & Polar Telemetry:** Bind **1 to 4 physical ESP32 Dome Sensors** over Web Serial to individual farm zones, or use **Mirror 1 ESP32 → Farm** to propagate a single hardware prototype across all 4 zones with spatial cloud attenuation.
 - **Phase 3 — Cloud Transients, Backtracking & Consensus:** Drifting cloud cells trigger localized `FLAT STOW` in shaded quadrants while sunlit quadrants keep tracking; **NREL row-to-row backtracking** ($\text{GCR} = 0.48$) prevents low-sun self-shading; **1-click Sensor Fault injection** demonstrates neighbor-dome consensus failover.
 - **Phase 4 — 3-Way Net Energy & Motor Wear Ledger:** Real-time kW chart and cumulative kWh comparison between **Adaptive Multi-Dome**, **Astronomical Clock Tracker**, and **Fixed-Tilt** arrays, accounting for actuator motor power saved via deadband holding and cloud stow.
+
+---
+
+## 🏗 Interactive Solar Farm Sandbox Builder (`solar_farm_builder.html`)
+
+An interactive grid-based simulator (`solar_farm_builder.html`) where anyone can design and test custom solar plant layouts on an `8×8`, `12×12`, or `16×16` grid:
+
+- **Click & Drag Grid Construction:** Paint **Solar Tracker Panels (`4.2 kWp`)**, **9-Channel Dome Sensor Masts**, and **Tall Shading Obstacles** (trees/pylons) in either **3D Isometric** or **2D Top-Down Blueprint** view.
+- **Automatic Voronoi Master–Slave Zone Linking:** Every placed panel automatically links to its nearest Dome Sensor with color-coded zone tiles and control tethers (or remains fixed at `0°` if no Dome Sensor is placed).
+- **Dynamic Row-Spacing & Obstacle Shadow Physics:** Placing panels on adjacent East–West cells introduces real row-to-row shading unless **Row Backtracking** is enabled; placing obstacles casts 3D solar shadows across neighboring cells and sensors.
+- **Live Master–Slave Design Advisor:** Evaluates your sensor-to-panel ratio (`1:N`), cloud resilience, and peer-consensus failover readiness in real time.

@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar Farm Sandbox Builder · Grid Simulator</title>
+<style>
+:root {
+  --bg: #06080d;
+  --panel: rgba(11, 15, 24, 0.84);
+  --panel-strong: rgba(10, 14, 22, 0.95);
+  --border: rgba(255, 255, 255, 0.10);
+  --amber: #f59e0b;
+  --amber-glow: rgba(245, 158, 11, 0.34);
+  --cyan: #38bdf8;
+  --green: #10b981;
+  --violet: #a78bfa;
+  --rose: #f43f5e;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --dim: #64748b;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  overflow: hidden;
+  user-select: none;
+}
+
+canvas#sim-cv {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  touch-action: none;
+  z-index: 1;
+  cursor: crosshair;
+}
+canvas#sim-cv.inspect-mode { cursor: grab; }
+canvas#sim-cv.dragging { cursor: grabbing; }
+
+/* Top Header */
+header.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 54px; z-index: 25;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(6,8,13,0.96) 0%, rgba(6,8,13,0.80) 85%, transparent 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  pointer-events: none;
+}
+header.topbar > * { pointer-events: auto; }
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  width: 31px; height: 31px; border-radius: 8px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  display: grid; place-items: center;
+  box-shadow: 0 0 16px var(--amber-glow);
+}
+.brand-mark svg { width: 17px; height: 17px; fill: #06080d; }
+.brand-copy h1 { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #fff; }
+.brand-copy p { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+
+.top-center, .top-right { display: flex; align-items: center; gap: 7px; }
+
+.btn {
+  font: 600 11px var(--sans);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.16s;
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn:hover { background: rgba(255,255,255,0.12); border-color: var(--amber); color: #fff; }
+.btn.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: var(--amber);
+  color: var(--amber);
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.18);
+}
+.btn.danger { border-color: rgba(244,63,94,0.4); color: #fda4af; }
+.btn.danger:hover, .btn.danger.active { background: rgba(244,63,94,0.22); border-color: var(--rose); color: #fff; }
+.btn svg { width: 13px; height: 13px; fill: currentColor; }
+
+.select-pill {
+  font: 600 11px var(--sans);
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  cursor: pointer;
+  outline: none;
+}
+.select-pill option { background: #0f172a; color: #fff; }
+
+/* Onboarding Empty-Grid Toast */
+.empty-hint {
+  position: fixed; top: 68px; left: 50%; transform: translateX(-50%);
+  z-index: 18;
+  background: rgba(11, 15, 24, 0.90);
+  border: 1px solid rgba(245, 158, 11, 0.42);
+  border-radius: 12px;
+  padding: 9px 16px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--text);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.empty-hint.hidden { opacity: 0; }
+.hint-badge {
+  font: 700 10px var(--mono);
+  background: var(--amber); color: #06080d;
+  padding: 2px 7px; border-radius: 5px;
+}
+
+/* Main Workspace Columns */
+.hud-wrap {
+  position: fixed;
+  top: 62px; bottom: 72px; left: 16px; right: 16px;
+  z-index: 12;
+  display: flex; justify-content: space-between;
+  pointer-events: none;
+}
+
+.left-palette {
+  width: 256px;
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 100%; overflow-y: auto; scrollbar-width: none;
+  pointer-events: auto;
+}
+.right-telemetry {
+  width: 304px;
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 100%; overflow-y: auto; scrollbar-width: none;
+  pointer-events: auto;
+}
+.left-palette::-webkit-scrollbar, .right-telemetry::-webkit-scrollbar { display: none; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 12px 13px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+.card-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 9px; padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.card-title {
+  font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.85px;
+  color: var(--muted);
+}
+
+/* Build Tool Buttons */
+.tool-grid { display: flex; flex-direction: column; gap: 6px; }
+.tool-btn {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  color: var(--text);
+  transition: all 0.16s;
+}
+.tool-btn:hover {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.22);
+}
+.tool-btn.active {
+  background: rgba(245, 158, 11, 0.13);
+  border-color: var(--amber);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.16);
+}
+.tool-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,0.38);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 15px;
+}
+.tool-copy strong { display: block; font-size: 12px; color: #fff; }
+.tool-copy span { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; }
+.kbd-tag {
+  font: 700 10px var(--mono);
+  color: var(--muted);
+  background: rgba(255,255,255,0.07);
+  padding: 2px 6px; border-radius: 4px;
+}
+
+.preset-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+}
+.preset-grid .btn { justify-content: center; font-size: 10.5px; padding: 6px 6px; }
+
+.gesture-help {
+  font-size: 10.5px; color: var(--muted); line-height: 1.45;
+}
+.gesture-help b { color: #fff; font-weight: 600; }
+
+/* Right Column KPIs */
+.kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.kpi-box {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 9px; padding: 8px 9px;
+}
+.kpi-lbl { font-size: 9.5px; color: var(--muted); margin-bottom: 2px; }
+.kpi-val { font-family: var(--mono); font-size: 16px; font-weight: 700; color: #fff; }
+.kpi-sub { font-family: var(--mono); font-size: 9.5px; color: var(--green); margin-top: 2px; }
+
+.arch-meter {
+  margin-top: 9px; padding: 8px 9px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.32);
+  border: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+}
+.arch-status {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  margin-top: 3px;
+}
+
+/* Selected Cell / Dome Inspector */
+.insp-empty {
+  font-size: 11.5px; color: var(--muted); line-height: 1.45;
+  padding: 6px 2px;
+}
+.insp-body { display: none; flex-direction: column; gap: 8px; }
+.insp-body.visible { display: flex; }
+
+.insp-row { display: flex; justify-content: space-between; font-size: 11px; }
+.insp-row .k { color: var(--muted); }
+.insp-row .v { font-family: var(--mono); font-weight: 600; color: #fff; }
+
+.rose-row {
+  display: grid; grid-template-columns: 88px 1fr; gap: 10px; align-items: center;
+}
+.mini-rose-box {
+  width: 88px; height: 88px; border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+canvas#sel-rose { width: 100%; height: 100%; display: block; }
+
+/* Rolling Power Chart */
+.chart-box {
+  width: 100%; height: 96px;
+  background: rgba(0,0,0,0.36);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px; padding: 5px;
+  margin-bottom: 6px;
+}
+canvas#sim-chart { width: 100%; height: 100%; display: block; }
+
+/* Bottom Timeline Scrubber */
+.timeline-dock {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 20;
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 15px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.55);
+  min-width: min(760px, 94vw);
+}
+.clock-readout {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--amber); min-width: 76px; text-align: center;
+}
+.scrubber-group { flex: 1; display: flex; align-items: center; gap: 8px; }
+.scrubber-group label { font-size: 10px; font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+input[type="range"].bar-slider { flex: 1; accent-color: var(--amber); cursor: pointer; height: 4px; }
+.divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+.toggle-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
+.toggle-chip input { accent-color: var(--amber); cursor: pointer; }
+
+@media (max-width: 980px) {
+  .right-telemetry { display: none; }
+  .timeline-dock { min-width: 94vw; flex-wrap: wrap; justify-content: center; gap: 7px; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="sim-cv" aria-label="Interactive Solar Farm Grid Builder"></canvas>
+
+<!-- Top Command Bar -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm13 0h2v3h3v2h-3v3h-2v-3h-3v-2h3v-3z"/></svg>
+    </div>
+    <div class="brand-copy">
+      <h1>Solar Farm Sandbox Builder</h1>
+      <p>Interactive Grid Placement · Voronoi Master–Slave Domes · Real-Time Shading</p>
+    </div>
+  </div>
+
+  <div class="top-center">
+    <select class="select-pill" id="grid-size-sel" title="Grid Dimensions">
+      <option value="8">Grid: 8 × 8</option>
+      <option value="12" selected>Grid: 12 × 12</option>
+      <option value="16">Grid: 16 × 16</option>
+    </select>
+    <button class="btn active" id="btn-view-3d">3D Isometric</button>
+    <button class="btn" id="btn-view-2d">2D Blueprint</button>
+    <label class="toggle-chip" style="padding:0 6px" title="Show control links from each Solar Panel to its Master Dome Sensor">
+      <input type="checkbox" id="chk-links" checked>
+      Zone Links
+    </label>
+  </div>
+
+  <div class="top-right">
+    <select class="select-pill" id="weather-sel">
+      <option value="scattered" selected>Sky: Scattered Clouds</option>
+      <option value="clear">Sky: Clear Sun</option>
+      <option value="front">Sky: Storm Front</option>
+      <option value="overcast">Sky: Overcast</option>
+    </select>
+    <a href="solar_farm.html" class="btn" title="Open 4-Phase Plant Showcase">4-Zone Plant →</a>
+  </div>
+</header>
+
+<!-- Floating Prompt when Grid is Empty -->
+<div class="empty-hint" id="empty-hint">
+  <span class="hint-badge">BUILD MODE</span>
+  <span>Click or drag on the grid to place <b>Solar Panels</b> and <b>9-Ch Dome Sensors</b> — or choose a Blueprint on the left!</span>
+</div>
+
+<!-- Left Build Palette & Right Live Telemetry -->
+<div class="hud-wrap">
+
+  <!-- LEFT: Construction Palette & Blueprints -->
+  <div class="left-palette">
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Construction Palette</span>
+        <span style="font:600 9.5px var(--mono);color:var(--amber)" id="grid-count-lbl">0 / 144</span>
+      </div>
+
+      <div class="tool-grid" id="tool-grid">
+        <button class="tool-btn active" data-tool="panel">
+          <div class="tool-icon" style="color:#60a5fa">▦</div>
+          <div class="tool-copy">
+            <strong>Solar Tracker Panel</strong>
+            <span>4.2 kWp · Links to nearest Dome</span>
+          </div>
+          <span class="kbd-tag">1</span>
+        </button>
+
+        <button class="tool-btn" data-tool="dome">
+          <div class="tool-icon" style="color:#f59e0b">◉</div>
+          <div class="tool-copy">
+            <strong>9-Ch Dome Sensor</strong>
+            <span>Guides surrounding panel zone</span>
+          </div>
+          <span class="kbd-tag">2</span>
+        </button>
+
+        <button class="tool-btn" data-tool="obstacle">
+          <div class="tool-icon" style="color:#94a3b8">▲</div>
+          <div class="tool-copy">
+            <strong>Tall Shading Obstacle</strong>
+            <span>Tree/Pylon · Casts 3D shadow</span>
+          </div>
+          <span class="kbd-tag">3</span>
+        </button>
+
+        <button class="tool-btn" data-tool="inspect">
+          <div class="tool-icon" style="color:#10b981">⌖</div>
+          <div class="tool-copy">
+            <strong>Inspect / Orbit Cam</strong>
+            <span>Click unit for live telemetry</span>
+          </div>
+          <span class="kbd-tag">4</span>
+        </button>
+
+        <button class="tool-btn" data-tool="erase">
+          <div class="tool-icon" style="color:#f43f5e">✕</div>
+          <div class="tool-copy">
+            <strong>Bulldoze / Erase</strong>
+            <span>Clear cells (or Right-Click)</span>
+          </div>
+          <span class="kbd-tag">5</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Quick Blueprints</span>
+        <span style="font:600 9.5px var(--mono);color:var(--dim)">TEMPLATES</span>
+      </div>
+      <div class="preset-grid">
+        <button class="btn" id="pre-empty">Empty Grid</button>
+        <button class="btn" id="pre-single">1 Dome + 16 Panels</button>
+        <button class="btn" id="pre-zonal">4-Dome Zonal</button>
+        <button class="btn" id="pre-shade">Obstacle Test</button>
+      </div>
+    </div>
+
+    <div class="card gesture-help">
+      <div><b>Left-Click / Drag:</b> Place active item</div>
+      <div><b>Right-Drag</b> (or <b>Alt+Drag</b>): Orbit 3D camera</div>
+      <div><b>Shift+Drag:</b> Pan · <b>Scroll:</b> Zoom</div>
+      <div><b>Right-Click Tap:</b> Quick-erase cell</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Live Farm Physics & Cell Inspector -->
+  <div class="right-telemetry">
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Live Custom Farm Output</span>
+        <span id="sun-el-lbl" style="font:600 10px var(--mono);color:var(--amber)">EL 48°</span>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-box">
+          <div class="kpi-lbl">Harvested Power</div>
+          <div class="kpi-val" id="kpi-kw">0.0 kW</div>
+          <div class="kpi-sub" id="kpi-gain">+0.0% vs Fixed</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-lbl">Panels / Domes</div>
+          <div class="kpi-val" id="kpi-counts">0 / 0</div>
+          <div class="kpi-sub" id="kpi-cap" style="color:var(--cyan)">0.0 kWp Installed</div>
+        </div>
+      </div>
+
+      <div class="arch-meter">
+        <div style="color:var(--muted);font-size:10px">MASTER–SLAVE DESIGN ADVISOR</div>
+        <div class="arch-status" id="arch-advice" style="color:var(--amber)">Place panels &amp; at least 1 Dome Sensor</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title" id="sel-hdr">Unit Inspector</span>
+        <span id="sel-badge" style="font:700 9.5px var(--mono);color:var(--cyan)">NONE</span>
+      </div>
+
+      <div class="insp-empty" id="insp-empty">
+        Click any placed <b>Dome Sensor</b> or <b>Solar Panel</b> (using Inspect tool <kbd style="background:rgba(255,255,255,0.1);padding:1px 4px;border-radius:3px">4</kbd>) to view its 9-channel readings, bind USB hardware, or test sensor faults.
+      </div>
+
+      <div class="insp-body" id="insp-body">
+        <div class="rose-row" id="dome-rose-row">
+          <div class="mini-rose-box"><canvas id="sel-rose" width="176" height="176"></canvas></div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div class="insp-row"><span class="k">Est. Az / El</span><span class="v" id="ins-azel">—</span></div>
+            <div class="insp-row"><span class="k">Ring Spread</span><span class="v" id="ins-spread">0.00</span></div>
+            <div class="insp-row"><span class="k">Linked Panels</span><span class="v" id="ins-slaves">0</span></div>
+            <div class="insp-row"><span class="k">Target Tilt</span><span class="v" id="ins-tilt" style="color:var(--amber)">0.0°</span></div>
+          </div>
+        </div>
+
+        <div id="panel-info-rows" style="display:none;flex-direction:column;gap:4px">
+          <div class="insp-row"><span class="k">Master Dome</span><span class="v" id="ins-master">Unlinked</span></div>
+          <div class="insp-row"><span class="k">Panel Tilt</span><span class="v" id="ins-ptilt">0.0°</span></div>
+          <div class="insp-row"><span class="k">Local Cloud / Shade</span><span class="v" id="ins-pshade">0% / 0%</span></div>
+          <div class="insp-row"><span class="k">Table Output</span><span class="v" id="ins-pkw" style="color:var(--green)">0.00 kW</span></div>
+        </div>
+
+        <div id="dome-btns" style="display:flex;gap:6px;margin-top:4px">
+          <button class="btn" id="btn-usb-dome" style="flex:1;justify-content:center">Bind USB Serial</button>
+          <button class="btn danger" id="btn-fault-dome" style="flex:1;justify-content:center">Inject Fault</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Custom Plant Output vs Fixed (kW)</span>
+        <span style="font:600 10px var(--mono);color:var(--green)" id="kwh-total">0.00 kWh</span>
+      </div>
+      <div class="chart-box"><canvas id="sim-chart"></canvas></div>
+      <div style="display:flex;justify-content:space-between;font:600 10px var(--mono);color:var(--muted)">
+        <span><span style="color:#f59e0b">●</span> Your Layout</span>
+        <span><span style="color:#64748b">●</span> Same Panels Fixed (0°)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Timeline Scrubber -->
+<div class="timeline-dock">
+  <button class="btn active" id="btn-play" style="min-width:64px;justify-content:center">Pause</button>
+  <button class="btn" id="btn-speed">10×</button>
+  <div class="clock-readout" id="clock-lbl">09:45 AM</div>
+
+  <div class="scrubber-group">
+    <label for="time-slider">SOLAR TIME</label>
+    <input type="range" class="bar-slider" id="time-slider" min="5.75" max="18.25" step="0.02" value="9.75">
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="scrubber-group" style="max-width:155px">
+    <label for="cloud-slider">CLOUDS</label>
+    <input type="range" class="bar-slider" id="cloud-slider" min="0" max="1" step="0.02" value="0.45">
+  </div>
+
+  <div class="divider"></div>
+
+  <label class="toggle-chip" title="Automatically flatten tilt at low sun angles when an adjacent sunward grid cell also holds a Solar Panel">
+    <input type="checkbox" id="chk-bt" checked>
+    Row Backtracking
+  </label>
+</div>
+
+<script>
+/* ============================================================================
+   SOLAR FARM SANDBOX BUILDER & GRID PHYSICS SIMULATOR
+   Place Solar Panels, 9-Channel Dome Sensors, and Shading Obstacles on a Grid!
+   ============================================================================ */
+
+const D = Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const $ = id => document.getElementById(id);
+
+/* Distinct Zone Palette for Dynamically Placed Dome Sensors */
+const ZONE_COLORS = [
+  '#f59e0b', '#38bdf8', '#10b981', '#a78bfa',
+  '#f43f5e', '#84cc16', '#06b6d4', '#fb923c'
+];
+
+/* 9-Photodiode Hemispherical Normals (+X East, +Y Up, +Z North) */
+const DOME_ANGLES = [
+  [0, 90], [0, 60], [90, 60], [180, 60], [270, 60],
+  [45, 30], [135, 30], [225, 30], [315, 30]
+];
+const S_NORMALS = DOME_ANGLES.map(([az, el]) => [
+  Math.cos(el * D) * Math.sin(az * D),
+  Math.sin(el * D),
+  Math.cos(el * D) * Math.cos(az * D)
+]);
+
+const CELL_PITCH = 14.0;   // World units per grid cell
+const PANEL_KW   = 4.2;    // 4.2 kWp per placed solar tracker table
+const MOTOR_KW   = 0.018;  // 18 W motor draw while actively slewing
+const ADJACENT_GCR = 0.68; // Dense packing if panels placed side-by-side without row gap
+
+/* Grid State */
+let gridN = 12;
+let cells = [];            // 2D flattened array [gz * gridN + gx]
+let domes = [];            // Rebuilt dynamically whenever domes are added/removed
+let selectedCellKey = -1;  // Index into cells[]
+
+let activeTool = 'panel';  // 'panel' | 'dome' | 'obstacle' | 'inspect' | 'erase'
+let showLinks = true;
+let backtrackOn = true;
+let simHour = 9.75;
+let playing = true;
+const SPEEDS = [1, 10, 30, 60];
+let speedIdx = 1;
+let cloudMaster = 0.45;
+let weatherMode = 'scattered';
+
+const CLOUDS = [
+  { x: -55, z:  28, rx: 36, rz: 26, density: 0.92, vx: 11.2, vz: -1.5 },
+  { x:  28, z: -30, rx: 40, rz: 28, density: 0.88, vx: 10.0, vz: -1.2 },
+  { x: -120, z: -15, rx: 44, rz: 30, density: 0.94, vx: 12.0, vz: -1.7 }
+];
+
+const HIST_N = 90;
+const histYour = Array(HIST_N).fill(0);
+const histFixed = Array(HIST_N).fill(0);
+let cumYourKwh = 0, cumFixedKwh = 0, chartTick = 0;
+
+function cellWorldPos(gx, gz) {
+  const half = (gridN - 1) * 0.5;
+  return [
+    (gx - half) * CELL_PITCH,
+    (half - gz) * CELL_PITCH // gz=0 is top (North +Z), gz=gridN-1 is South (-Z)
+  ];
+}
+
+function initGrid(n) {
+  gridN = n;
+  cells = Array.from({ length: n * n }, (_, idx) => {
+    const gx = idx % n, gz = (idx / n) | 0;
+    const [wx, wz] = cellWorldPos(gx, gz);
+    return {
+      idx, gx, gz, wx, wz,
+      type: 'empty', // 'empty' | 'panel' | 'dome' | 'obstacle'
+      // Panel state
+      tilt: 0,
+      masterDome: null,
+      cloud: 0,
+      obsShade: 0,
+      rowShade: 0,
+      kw: 0,
+      // Dome state
+      domeId: 0,
+      color: ZONE_COLORS[0],
+      sensors: new Float32Array(9),
+      rawLive: null,
+      liveTs: -1e9,
+      serialPort: null,
+      faulted: false,
+      outlier: false,
+      estOk: false,
+      estVec: [0, 1, 0],
+      az: 0, el: 0, spread: 0,
+      mode: 'hold',
+      targetTilt: 0,
+      currentTilt: 0,
+      moving: false,
+      slaveCount: 0
+    };
+  });
+  selectedCellKey = -1;
+  cumYourKwh = 0; cumFixedKwh = 0;
+  rebuildTopology();
+}
+
+/* Rebuild Dome list & Nearest-Neighbor Voronoi Zone Assignment */
+function rebuildTopology() {
+  domes = [];
+  let dCount = 0, totalPlaced = 0;
+  for (const c of cells) {
+    if (c.type !== 'empty') totalPlaced++;
+    if (c.type === 'dome') {
+      c.domeId = ++dCount;
+      c.color = ZONE_COLORS[(dCount - 1) % ZONE_COLORS.length];
+      c.slaveCount = 0;
+      domes.push(c);
+    }
+  }
+
+  for (const c of cells) {
+    if (c.type === 'panel') {
+      let best = null, bestDist = Infinity;
+      for (const dm of domes) {
+        const dist = Math.hypot(c.wx - dm.wx, c.wz - dm.wz);
+        if (dist < bestDist) { bestDist = dist; best = dm; }
+      }
+      c.masterDome = best;
+      if (best) best.slaveCount++;
+    } else {
+      c.masterDome = null;
+    }
+  }
+
+  $('grid-count-lbl').textContent = `${totalPlaced} / ${gridN * gridN}`;
+  $('empty-hint').classList.toggle('hidden', totalPlaced > 0);
+  refreshInspectorHeader();
+}
+
+function setCellType(cell, newType) {
+  if (!cell || cell.type === newType) return;
+  cell.type = newType;
+  cell.tilt = 0;
+  cell.currentTilt = 0;
+  cell.targetTilt = 0;
+  cell.faulted = false;
+  rebuildTopology();
+}
+
+/* Starter Blueprints */
+function loadBlueprint(kind) {
+  initGrid(gridN);
+  const mid = (gridN / 2) | 0;
+
+  if (kind === 'single') {
+    // 1 central Dome Sensor + 16 surrounding Solar Panels (spaced neatly)
+    setCellType(cells[mid * gridN + mid], 'dome');
+    for (let gz = mid - 3; gz <= mid + 3; gz += 1) {
+      for (let gx = mid - 4; gx <= mid + 4; gx += 2) {
+        if (gx < 0 || gx >= gridN || gz < 0 || gz >= gridN) continue;
+        if (gx === mid && gz === mid) continue;
+        if (Math.abs(gz - mid) <= 2 && Math.abs(gx - mid) <= 4) {
+          setCellType(cells[gz * gridN + gx], 'panel');
+        }
+      }
+    }
+  } else if (kind === 'zonal') {
+    // 4 Zonal Domes + 4 Quadrants of Solar Panels
+    const offs = [[-3, -3], [3, -3], [-3, 3], [3, 3]];
+    for (const [ox, oz] of offs) {
+      const dGx = clamp(mid + ox, 1, gridN - 2);
+      const dGz = clamp(mid + oz, 1, gridN - 2);
+      setCellType(cells[dGz * gridN + dGx], 'dome');
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -2; dx <= 2; dx += 2) {
+          const px = dGx + dx, pz = dGz + dz;
+          if (px >= 0 && px < gridN && pz >= 0 && pz < gridN && !(px === dGx && pz === dGz)) {
+            setCellType(cells[pz * gridN + px], 'panel');
+          }
+        }
+      }
+    }
+  } else if (kind === 'shade') {
+    // Demonstrates obstacle shadow hitting one Dome vs healthy peer Dome
+    setCellType(cells[(mid - 2) * gridN + (mid - 2)], 'dome');
+    setCellType(cells[(mid + 2) * gridN + (mid + 2)], 'dome');
+    setCellType(cells[(mid - 2) * gridN + (mid - 1)], 'obstacle'); // East of Dome 1 -> casts morning shadow!
+    for (let gz = mid - 3; gz <= mid + 3; gz++) {
+      for (let gx = mid - 4; gx <= mid + 4; gx += 2) {
+        const c = cells[gz * gridN + gx];
+        if (c && c.type === 'empty') setCellType(c, 'panel');
+      }
+    }
+    simHour = 7.6;
+    $('time-slider').value = 7.6;
+  }
+}
+
+/* ============================================================================
+   PHYSICS: LEAST SQUARES, OBSTACLE RAY-SHADOWS, BACKTRACKING & HARVEST
+   ============================================================================ */
+function det3(m) {
+  return m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+       - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+       + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+}
+
+function solveLeastSquares(vals, count) {
+  let mx = 0;
+  for (let i = 0; i < count; i++) if (vals[i] > mx) mx = vals[i];
+  if (mx < 0.025) return null;
+  const thr = Math.max(0.025, 0.08 * mx);
+  const act = [];
+  for (let i = 0; i < count; i++) if (vals[i] > thr) act.push(i);
+
+  let v = null;
+  if (act.length >= 3) {
+    const A = [[0,0,0],[0,0,0],[0,0,0]], b = [0,0,0];
+    for (const i of act) {
+      for (let r = 0; r < 3; r++) {
+        b[r] += S_NORMALS[i][r] * vals[i];
+        for (let c = 0; c < 3; c++) A[r][c] += S_NORMALS[i][r] * S_NORMALS[i][c];
+      }
+    }
+    const d = det3(A);
+    if (Math.abs(d) > 1e-3) {
+      v = [0, 0, 0];
+      for (let k = 0; k < 3; k++) {
+        const M = A.map((row, r) => row.map((val, c) => c === k ? b[r] : val));
+        v[k] = det3(M) / d;
+      }
+    }
+  }
+  if (!v) {
+    v = [0, 0, 0];
+    for (let i = 0; i < count; i++) {
+      v[0] += vals[i] * S_NORMALS[i][0];
+      v[1] += vals[i] * S_NORMALS[i][1];
+      v[2] += vals[i] * S_NORMALS[i][2];
+    }
+  }
+  const mag = Math.hypot(v[0], v[1], v[2]);
+  return mag > 1e-4 ? [v[0] / mag, v[1] / mag, v[2] / mag] : null;
+}
+
+function getTrueSun(hour) {
+  const dayFrac = (hour - 6.0) / 12.0;
+  const ha = (dayFrac - 0.5) * Math.PI;
+  const sinEl = Math.cos(ha) * 0.97;
+  const el = Math.asin(clamp(sinEl, -0.2, 1)) / D;
+  const sx = -Math.sin(ha), sy = Math.max(0, sinEl), sz = -0.22 * Math.cos(ha);
+  const m = Math.hypot(sx, sy, sz) || 1;
+  return { vx: sx / m, vy: sy / m, vz: sz / m, el, above: el > 1.0 };
+}
+
+function sampleCloudAt(x, z) {
+  if (weatherMode === 'clear' || cloudMaster <= 0.01) return 0;
+  if (weatherMode === 'overcast') return clamp(0.84 + 0.14 * cloudMaster, 0, 0.98);
+  let cov = 0;
+  for (const cl of CLOUDS) {
+    const dx = (x - cl.x) / cl.rx, dz = (z - cl.z) / cl.rz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < 1.8) {
+      const f = Math.exp(-d2 * 2.1) * cl.density;
+      cov = 1 - (1 - cov) * (1 - f);
+    }
+  }
+  if (weatherMode === 'front') {
+    cov = Math.max(cov, Math.exp(-Math.pow((x - CLOUDS[0].x) / 34, 2)) * 0.94);
+  }
+  return clamp(cov * (0.45 + 0.75 * cloudMaster), 0, 0.96);
+}
+
+/* Check if a 3D Obstacle (height = 16 units) casts shadow onto point (wx, targetY, wz) */
+const OBSTACLE_H = 16.0;
+function sampleObstacleShadow(wx, targetY, wz, sun, obstacles) {
+  if (!sun.above || obstacles.length === 0) return 0;
+  const dh = OBSTACLE_H - targetY;
+  if (dh <= 0) return 0;
+  const shScale = dh / Math.max(0.14, sun.vy);
+  let maxSh = 0;
+  for (const ob of obstacles) {
+    // Shadow center cast by obstacle ob onto height targetY
+    const scx = ob.wx - sun.vx * shScale;
+    const scz = ob.wz - sun.vz * shScale;
+    // Distance to shadow segment from obstacle base to shadow tip
+    const vx = scx - ob.wx, vz = scz - ob.wz;
+    const len2 = vx * vx + vz * vz;
+    const t = len2 > 1e-3 ? clamp(((wx - ob.wx) * vx + (wz - ob.wz) * vz) / len2, 0, 1) : 0;
+    const nearX = ob.wx + t * vx, nearZ = ob.wz + t * vz;
+    const dist = Math.hypot(wx - nearX, wz - nearZ);
+    if (dist < 6.8 && t > 0.05) {
+      maxSh = Math.max(maxSh, clamp(1 - (dist / 6.8) * 0.6, 0, 0.92));
+    }
+  }
+  return maxSh;
+}
+
+function stepPhysics(dt) {
+  if (playing) {
+    simHour += dt * SPEEDS[speedIdx] * 0.032;
+    if (simHour > 18.25) simHour = 5.75;
+    $('time-slider').value = simHour.toFixed(2);
+
+    const wScale = weatherMode === 'front' ? 1.5 : 1.0;
+    for (const cl of CLOUDS) {
+      cl.x += cl.vx * wScale * dt * (1 + SPEEDS[speedIdx] * 0.035);
+      cl.z += cl.vz * dt;
+      if (cl.x > 150) cl.x = -150;
+      if (cl.z < -95) cl.z = 95;
+    }
+  }
+
+  const sun = getTrueSun(simHour);
+  const obstacles = cells.filter(c => c.type === 'obstacle');
+  const now = performance.now();
+
+  // 1. Update every placed Dome Sensor on the grid
+  for (const dm of domes) {
+    dm.cloud = sampleCloudAt(dm.wx, dm.wz);
+    dm.obsShade = sampleObstacleShadow(dm.wx, 6.5, dm.wz, sun, obstacles);
+    const effBlock = 1 - (1 - 0.88 * dm.cloud) * (1 - 0.90 * dm.obsShade);
+
+    const isLive = (now - dm.liveTs) < 2500 && dm.rawLive;
+    let chCount = 9;
+    if (isLive) {
+      chCount = dm.rawLive.length >= 9 ? 9 : 5;
+      for (let i = 0; i < 9; i++) dm.sensors[i] = i < chCount ? dm.rawLive[i] : 0;
+    } else if (!sun.above) {
+      dm.sensors.fill(0);
+    } else {
+      const atmo = Math.pow(Math.sin(Math.max(2, sun.el) * D), 0.35);
+      const beam = (1 - effBlock) * atmo;
+      const diff = (0.12 + 0.40 * dm.cloud + 0.08 * dm.obsShade) * atmo;
+      for (let i = 0; i < 9; i++) {
+        const n = S_NORMALS[i];
+        const cosInc = Math.max(0, n[0]*sun.vx + n[1]*sun.vy + n[2]*sun.vz);
+        dm.sensors[i] = clamp(beam * cosInc + diff * 0.5 * (1 + n[1]), 0, 1);
+      }
+    }
+
+    if (dm.faulted) {
+      dm.sensors[0] *= 0.05;
+      dm.sensors[2] *= 0.04;
+      dm.sensors[4] = clamp(dm.sensors[4] + 0.58, 0, 1);
+    }
+
+    let rMax = 0, rMin = 1;
+    for (let i = 1; i <= 4; i++) {
+      if (dm.sensors[i] > rMax) rMax = dm.sensors[i];
+      if (dm.sensors[i] < rMin) rMin = dm.sensors[i];
+    }
+    dm.spread = rMax > 0.02 ? (rMax - rMin) / rMax : 0;
+
+    const est = solveLeastSquares(dm.sensors, chCount);
+    if (est) {
+      dm.estOk = true; dm.estVec = est;
+      dm.az = (Math.atan2(est[0], est[2]) / D + 360) % 360;
+      dm.el = Math.asin(clamp(est[1], -1, 1)) / D;
+    } else {
+      dm.estOk = false; dm.estVec = [0, 1, 0]; dm.az = 0; dm.el = 0;
+    }
+  }
+
+  // 2. Peer Consensus across Healthy Domes (works when >= 2 Domes are placed!)
+  const healthy = domes.filter(d => d.estOk && !d.faulted && d.obsShade < 0.5);
+  let consensus = [0, 1, 0];
+  if (healthy.length > 0) {
+    let sx = 0, sy = 0, sz = 0;
+    for (const h of healthy) { sx += h.estVec[0]; sy += h.estVec[1]; sz += h.estVec[2]; }
+    const m = Math.hypot(sx, sy, sz) || 1;
+    consensus = [sx / m, sy / m, sz / m];
+  }
+
+  for (const dm of domes) {
+    const dotP = dm.estVec[0]*consensus[0] + dm.estVec[1]*consensus[1] + dm.estVec[2]*consensus[2];
+    dm.outlier = (dm.faulted || (dm.obsShade > 0.6 && healthy.length >= 1)) && healthy.length >= 1
+               || (dm.estOk && healthy.length >= 2 && dotP < 0.84);
+
+    const vec = dm.outlier ? consensus : dm.estVec;
+    if (!dm.estOk && !dm.outlier) {
+      dm.mode = 'dark'; dm.targetTilt = 0;
+    } else if (!dm.outlier && dm.spread < 0.22) {
+      dm.mode = 'stow'; dm.targetTilt = 0;
+    } else {
+      const ideal = clamp(Math.atan2(vec[0], Math.max(0.03, vec[1])) / D, -60, 60);
+      if (Math.abs(ideal - dm.currentTilt) < 3.0) {
+        dm.mode = dm.outlier ? 'fault' : 'hold';
+      } else {
+        dm.targetTilt = ideal;
+        dm.mode = dm.outlier ? 'fault' : 'track';
+      }
+    }
+
+    const diff = dm.targetTilt - dm.currentTilt;
+    if (Math.abs(diff) > 0.25) {
+      dm.currentTilt += Math.sign(diff) * Math.min(Math.abs(diff), 34 * dt);
+      dm.moving = true;
+    } else {
+      dm.moving = false;
+    }
+  }
+
+  // 3. Update every placed Solar Panel on the Grid
+  let totalYourKw = 0, totalFixedKw = 0, panelCount = 0;
+
+  for (const c of cells) {
+    if (c.type !== 'panel') continue;
+    panelCount++;
+    c.cloud = sampleCloudAt(c.wx, c.wz);
+    c.obsShade = sampleObstacleShadow(c.wx, 3.0, c.wz, sun, obstacles);
+    c.rowShade = 0;
+
+    // Check if immediate East (+1) or West (-1) grid neighbor is ALSO a Solar Panel!
+    const eastNeighbor  = c.gx < gridN - 1 && cells[c.gz * gridN + (c.gx + 1)].type === 'panel';
+    const westNeighbor  = c.gx > 0         && cells[c.gz * gridN + (c.gx - 1)].type === 'panel';
+    const hasSunwardRow = (sun.vx > 0 && eastNeighbor) || (sun.vx < 0 && westNeighbor);
+
+    let desiredTilt = 0;
+    let isMoving = false;
+    if (c.masterDome) {
+      desiredTilt = c.masterDome.currentTilt;
+      isMoving = c.masterDome.moving;
+
+      // Apply local NREL row-to-row backtracking if tightly packed next to another panel!
+      if (backtrackOn && hasSunwardRow && c.masterDome.mode !== 'stow' && sun.above) {
+        const thetaZ = Math.atan2(sun.vx, Math.max(0.02, sun.vy));
+        const ratio = Math.cos(thetaZ) / ADJACENT_GCR;
+        if (ratio < 1.0) {
+          const cutoff = Math.acos(clamp(ratio, 0, 1));
+          desiredTilt = clamp((Math.sign(thetaZ) * Math.max(0, Math.abs(thetaZ) - cutoff)) / D, -60, 60);
+        }
+      }
+    }
+
+    c.tilt += (desiredTilt - c.tilt) * Math.min(1, dt * 9);
+
+    if (sun.above) {
+      const atmo = Math.pow(Math.sin(Math.max(2, sun.el) * D), 0.35);
+      const beam = (1 - 0.88 * c.cloud) * (1 - 0.92 * c.obsShade) * atmo;
+      const diff = (0.13 + 0.35 * c.cloud) * atmo;
+
+      const rad = c.tilt * D;
+      let cosB = Math.max(0, Math.sin(rad) * sun.vx + Math.cos(rad) * sun.vy);
+
+      // Row-to-row shadow penalty if tightly packed WITHOUT backtracking
+      if (hasSunwardRow && sun.el < 36) {
+        const thetaZ = Math.atan2(sun.vx, Math.max(0.02, sun.vy));
+        const projR = Math.cos(rad - thetaZ) / Math.max(0.06, Math.cos(thetaZ));
+        if (projR > (1 / ADJACENT_GCR)) {
+          c.rowShade = clamp(1 - (1 / ADJACENT_GCR) / projR, 0, 0.78) * (1 - c.cloud);
+          cosB *= Math.max(0.1, 1 - c.rowShade * 1.4);
+        }
+      }
+
+      const pYour = PANEL_KW * (beam * cosB + diff * 0.5 * (1 + Math.cos(rad))) - (isMoving ? MOTOR_KW : 0);
+      const pFix  = PANEL_KW * (beam * Math.max(0, sun.vy) + diff);
+
+      c.kw = Math.max(0, pYour);
+      totalYourKw += c.kw;
+      totalFixedKw += Math.max(0, pFix);
+    } else {
+      c.kw = 0;
+    }
+  }
+
+  if (playing && sun.above) {
+    const dH = dt * SPEEDS[speedIdx] * 0.032;
+    cumYourKwh += totalYourKw * dH;
+    cumFixedKwh += totalFixedKw * dH;
+  }
+
+  chartTick += dt;
+  if (chartTick > 0.22) {
+    chartTick = 0;
+    histYour.push(totalYourKw); histYour.shift();
+    histFixed.push(totalFixedKw); histFixed.shift();
+  }
+
+  return { sun, totalYourKw, totalFixedKw, panelCount, obstacles };
+}
+
+/* ============================================================================
+   3D / 2D INTERACTIVE GRID RENDERER & EXACT POLYGON HIT-TESTING
+   ============================================================================ */
+const cv = $('sim-cv');
+const ctx = cv.getContext('2d', { alpha: false });
+let W = 0, H = 0, dpr = 1;
+
+const cam = { yaw: -28, pitch: 40, zoom: 1.0, px: 20, py: 24, targetPitch: 40, targetYaw: -28 };
+let hoveredIdx = -1;
+let cellScreenQuads = [];
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.width = window.innerWidth * dpr;
+  H = cv.height = window.innerHeight * dpr;
+}
+resize();
+window.addEventListener('resize', resize);
+
+function makeProjector() {
+  const span = gridN * CELL_PITCH;
+  const cy = Math.cos(cam.yaw * D), sy = Math.sin(cam.yaw * D);
+  const cp = Math.cos(cam.pitch * D), sp = Math.sin(cam.pitch * D);
+  const unitPx = (Math.min(W, H) * 0.56 / span) * cam.zoom;
+  const cx = W * 0.5 + cam.px;
+  const cyScreen = H * 0.52 + cam.py;
+
+  return (x, y, z) => {
+    const x1 = x * cy + z * sy;
+    const z1 = -x * sy + z * cy;
+    const y2 = y * cp - z1 * sp;
+    const z2 = y * sp + z1 * cp;
+    const fov = 420;
+    const k = fov / Math.max(90, fov - z2);
+    return [cx + x1 * unitPx * k, cyScreen - y2 * unitPx * k, z2];
+  };
+}
+
+function pointInQuad(px, py, q) {
+  let inside = false;
+  for (let i = 0, j = 3; i < 4; j = i++) {
+    const xi = q[i][0], yi = q[i][1];
+    const xj = q[j][0], yj = q[j][1];
+    const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-6) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function hitTestCell(clientX, clientY) {
+  const mx = clientX * dpr, my = clientY * dpr;
+  for (let i = 0; i < cellScreenQuads.length; i++) {
+    if (pointInQuad(mx, my, cellScreenQuads[i])) return i;
+  }
+  return -1;
+}
+
+/* Mouse / Touch Painting + Camera Orbit/Pan/Zoom */
+{
+  let mode = null; // 'paint' | 'erase' | 'orbit' | 'pan'
+  let lastX = 0, lastY = 0, moved = 0;
+
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    lastX = e.clientX; lastY = e.clientY; moved = 0;
+    hoveredIdx = hitTestCell(e.clientX, e.clientY);
+
+    if (e.shiftKey || e.button === 1) {
+      mode = 'pan';
+      cv.classList.add('dragging');
+    } else if (e.button === 2 || e.altKey) {
+      mode = 'orbit';
+      cv.classList.add('dragging');
+    } else if (activeTool === 'inspect') {
+      mode = 'orbit';
+      cv.classList.add('dragging');
+    } else {
+      mode = activeTool === 'erase' ? 'erase' : 'paint';
+      if (hoveredIdx >= 0) {
+        setCellType(cells[hoveredIdx], mode === 'erase' ? 'empty' : activeTool);
+        selectedCellKey = hoveredIdx;
+        refreshInspectorHeader();
+      } else {
+        // Dragging outside the grid pad orbits smoothly!
+        mode = 'orbit';
+        cv.classList.add('dragging');
+      }
+    }
+  });
+
+  cv.addEventListener('pointermove', e => {
+    hoveredIdx = hitTestCell(e.clientX, e.clientY);
+    if (!mode) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    moved += Math.hypot(dx, dy);
+    lastX = e.clientX; lastY = e.clientY;
+
+    if (mode === 'orbit') {
+      cam.yaw += dx * 0.36;
+      cam.pitch = clamp(cam.pitch + dy * 0.36, 14, 89);
+      cam.targetYaw = cam.yaw;
+      cam.targetPitch = cam.pitch;
+    } else if (mode === 'pan') {
+      cam.px += dx * dpr;
+      cam.py += dy * dpr;
+    } else if ((mode === 'paint' || mode === 'erase') && hoveredIdx >= 0) {
+      // Allow dragging to paint panels or erase; single-click for domes unless dragging
+      const targetType = mode === 'erase' ? 'empty' : activeTool;
+      if (targetType !== 'dome' || cells[hoveredIdx].type === 'empty') {
+        setCellType(cells[hoveredIdx], targetType);
+      }
+    }
+  });
+
+  const endPtr = e => {
+    if (e.button === 2 && moved < 5 && hoveredIdx >= 0) {
+      // Quick right-click tap erases cell!
+      setCellType(cells[hoveredIdx], 'empty');
+    } else if (activeTool === 'inspect' && moved < 6 && hoveredIdx >= 0) {
+      selectedCellKey = hoveredIdx;
+      refreshInspectorHeader();
+    }
+    mode = null;
+    cv.classList.remove('dragging');
+  };
+  cv.addEventListener('pointerup', endPtr);
+  cv.addEventListener('pointercancel', endPtr);
+
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    cam.zoom = clamp(cam.zoom * Math.exp(-e.deltaY * 0.0012), 0.55, 2.4);
+  }, { passive: false });
+}
+
+function renderScene(stats) {
+  const { sun } = stats;
+  cam.yaw += (cam.targetYaw - cam.yaw) * 0.16;
+  cam.pitch += (cam.targetPitch - cam.pitch) * 0.16;
+
+  ctx.fillStyle = '#06080d';
+  ctx.fillRect(0, 0, W, H);
+
+  const dayB = clamp(sun.el / 65, 0, 1);
+  const bg = ctx.createRadialGradient(W * 0.52, H * 0.38, 10, W * 0.5, H * 0.5, Math.max(W, H) * 0.68);
+  bg.addColorStop(0, `rgba(${Math.round(15 + 24 * dayB)}, ${Math.round(23 + 30 * dayB)}, ${Math.round(42 + 44 * dayB)}, 0.52)`);
+  bg.addColorStop(1, 'rgba(6,8,13,0)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const proj = makeProjector();
+  const halfC = CELL_PITCH * 0.5;
+  const padHalf = (gridN * CELL_PITCH) * 0.5 + 4;
+
+  // 1. Base Ground Platform
+  const basePoly = [
+    proj(-padHalf, -0.2, -padHalf),
+    proj( padHalf, -0.2, -padHalf),
+    proj( padHalf, -0.2,  padHalf),
+    proj(-padHalf, -0.2,  padHalf)
+  ];
+  ctx.fillStyle = 'rgba(11, 18, 30, 0.88)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.4 * dpr;
+  ctx.beginPath();
+  basePoly.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Compass Labels
+  ctx.font = `700 ${10.5 * dpr}px var(--mono)`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.72)';
+  const cDist = padHalf + 9;
+  for (const [lx, lz, lbl] of [[0, cDist, 'NORTH'], [cDist, 0, 'EAST'], [0, -cDist, 'SOUTH'], [-cDist, 0, 'WEST']]) {
+    const p = proj(lx, 0, lz);
+    ctx.fillText(lbl, p[0], p[1]);
+  }
+
+  // 2. Compute & Draw Grid Cells (Voronoi Zone Tints + Hover Cursor)
+  cellScreenQuads = new Array(cells.length);
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    const x0 = c.wx - halfC + 0.4, x1 = c.wx + halfC - 0.4;
+    const z0 = c.wz - halfC + 0.4, z1 = c.wz + halfC - 0.4;
+    const q = [proj(x0, 0, z0), proj(x1, 0, z0), proj(x1, 0, z1), proj(x0, 0, z1)];
+    cellScreenQuads[i] = q;
+
+    const isHov = i === hoveredIdx;
+    const isSel = i === selectedCellKey;
+
+    if (c.type === 'panel' && c.masterDome) {
+      ctx.fillStyle = c.masterDome.color + '18';
+    } else if (c.type === 'dome') {
+      ctx.fillStyle = c.color + '2c';
+    } else {
+      ctx.fillStyle = isHov ? 'rgba(245, 158, 11, 0.14)' : 'rgba(255, 255, 255, 0.018)';
+    }
+
+    ctx.strokeStyle = isSel
+      ? '#fbbf24'
+      : isHov
+        ? 'rgba(245, 158, 11, 0.85)'
+        : 'rgba(255, 255, 255, 0.06)';
+    ctx.lineWidth = (isSel || isHov ? 1.8 : 0.8) * dpr;
+
+    ctx.beginPath();
+    q.forEach((p, k) => k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // 3. Ground Cloud Shadows
+  if (weatherMode !== 'clear' && cloudMaster > 0.02) {
+    for (const cl of CLOUDS) {
+      if (Math.abs(cl.x) > padHalf + 35 || Math.abs(cl.z) > padHalf + 35) continue;
+      const cp = proj(cl.x, 0.1, cl.z);
+      const ep = proj(cl.x + cl.rx, 0.1, cl.z);
+      const rPx = Math.max(12, Math.hypot(ep[0] - cp[0], ep[1] - cp[1]));
+      const g = ctx.createRadialGradient(cp[0], cp[1], rPx * 0.1, cp[0], cp[1], rPx * 1.2);
+      g.addColorStop(0, `rgba(2, 4, 10, ${clamp(0.42 * cl.density * cloudMaster, 0, 0.45)})`);
+      g.addColorStop(1, 'rgba(2, 4, 10, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cp[0], cp[1], rPx * 1.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // 4. Optional Zone Control Links (from each Solar Panel to its Master Dome)
+  if (showLinks) {
+    for (const c of cells) {
+      if (c.type === 'panel' && c.masterDome) {
+        const p0 = proj(c.wx, 0.25, c.wz);
+        const p1 = proj(c.masterDome.wx, 0.25, c.masterDome.wz);
+        ctx.strokeStyle = c.masterDome.color + '44';
+        ctx.lineWidth = 1.1 * dpr;
+        ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+      }
+    }
+  }
+
+  // 5. Depth-Sorted 3D Objects (Panels, Dome Sensors, Tall Obstacles)
+  const placed = cells.filter(c => c.type !== 'empty').map(c => ({
+    c,
+    depth: proj(c.wx, 3.0, c.wz)[2]
+  })).sort((a, b) => a.depth - b.depth);
+
+  for (const { c } of placed) {
+    if (c.type === 'panel') {
+      const hw = CELL_PITCH * 0.38, hl = CELL_PITCH * 0.40, hubY = 2.8;
+      const rad = c.tilt * D;
+      const cw = Math.cos(rad) * hw, sw = Math.sin(rad) * hw;
+
+      // Cast panel ground shadow
+      if (sun.above && c.cloud < 0.8) {
+        const sc = clamp(1 / Math.max(0.22, sun.vy), 1, 3.4);
+        const ox = -sun.vx * hubY * sc, oz = -sun.vz * hubY * sc;
+        const sp = [
+          proj(c.wx - cw + ox, 0.05, c.wz - hl + oz),
+          proj(c.wx + cw + ox, 0.05, c.wz - hl + oz),
+          proj(c.wx + cw + ox, 0.05, c.wz + hl + oz),
+          proj(c.wx - cw + ox, 0.05, c.wz + hl + oz)
+        ];
+        ctx.fillStyle = `rgba(0,0,0,${0.34 * (1 - c.cloud)})`;
+        ctx.beginPath(); sp.forEach((p, k) => k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill();
+      }
+
+      // Pedestal
+      const b0 = proj(c.wx, 0, c.wz), b1 = proj(c.wx, hubY, c.wz);
+      ctx.strokeStyle = '#475569'; ctx.lineWidth = 1.8 * dpr;
+      ctx.beginPath(); ctx.moveTo(b0[0], b0[1]); ctx.lineTo(b1[0], b1[1]); ctx.stroke();
+
+      // Panel Quad
+      const q0 = proj(c.wx - cw, hubY + sw, c.wz - hl);
+      const q1 = proj(c.wx + cw, hubY - sw, c.wz - hl);
+      const q2 = proj(c.wx + cw, hubY - sw, c.wz + hl);
+      const q3 = proj(c.wx - cw, hubY + sw, c.wz + hl);
+
+      const shadeTot = Math.max(c.rowShade, c.obsShade);
+      const lit = sun.above ? clamp(c.kw / PANEL_KW, 0.12, 1) : 0.1;
+      const rC = Math.round(20 + 25 * lit + 145 * shadeTot);
+      const gC = Math.round((48 + 86 * lit) * (1 - 0.55 * shadeTot));
+      const bC = Math.round((105 + 135 * lit) * (1 - 0.55 * shadeTot));
+
+      ctx.fillStyle = c.masterDome ? `rgb(${rC},${gC},${bC})` : '#334155';
+      ctx.strokeStyle = shadeTot > 0.15
+        ? '#f43f5e'
+        : (c.masterDome ? c.masterDome.color : 'rgba(148,163,184,0.5)');
+      ctx.lineWidth = 1.15 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]);
+      ctx.lineTo(q2[0], q2[1]); ctx.lineTo(q3[0], q3[1]);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    } else if (c.type === 'dome') {
+      const b0 = proj(c.wx, 0, c.wz), top = proj(c.wx, 6.5, c.wz);
+      ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 2.3 * dpr;
+      ctx.beginPath(); ctx.moveTo(b0[0], b0[1]); ctx.lineTo(top[0], top[1]); ctx.stroke();
+
+      const col = c.outlier ? '#f43f5e' : c.color;
+      const gr = ctx.createRadialGradient(top[0], top[1], 1, top[0], top[1], 14 * dpr);
+      gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.arc(top[0], top[1], 14 * dpr, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = col; ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.arc(top[0], top[1], 4.5 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      if (c.estOk) {
+        const ray = proj(c.wx + c.estVec[0]*11, 6.5 + c.estVec[1]*11, c.wz + c.estVec[2]*11);
+        ctx.strokeStyle = col; ctx.lineWidth = 1.4 * dpr;
+        ctx.setLineDash([3 * dpr, 3 * dpr]);
+        ctx.beginPath(); ctx.moveTo(top[0], top[1]); ctx.lineTo(ray[0], ray[1]); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      ctx.font = `700 ${9.5 * dpr}px var(--mono)`;
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+      ctx.fillText(`D${c.domeId}`, top[0], top[1] - 9 * dpr);
+
+    } else if (c.type === 'obstacle') {
+      // Tall Shading Tower / Cypress Tree Cone + Cast Shadow
+      if (sun.above) {
+        const shScale = OBSTACLE_H / Math.max(0.14, sun.vy);
+        const tip = proj(c.wx - sun.vx * shScale, 0.08, c.wz - sun.vz * shScale);
+        const sL = proj(c.wx - 3.6, 0.08, c.wz - 3.6);
+        const sR = proj(c.wx + 3.6, 0.08, c.wz + 3.6);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.46)';
+        ctx.beginPath();
+        ctx.moveTo(sL[0], sL[1]); ctx.lineTo(tip[0], tip[1]); ctx.lineTo(sR[0], sR[1]);
+        ctx.closePath(); ctx.fill();
+      }
+      const w = 3.6;
+      const b0 = proj(c.wx - w, 0, c.wz - w), b1 = proj(c.wx + w, 0, c.wz - w);
+      const b2 = proj(c.wx + w, 0, c.wz + w), b3 = proj(c.wx - w, 0, c.wz + w);
+      const apex = proj(c.wx, OBSTACLE_H, c.wz);
+      ctx.fillStyle = '#334155'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1 * dpr;
+      for (const [pA, pB] of [[b0,b1],[b1,b2],[b2,b3],[b3,b0]]) {
+        ctx.beginPath();
+        ctx.moveTo(pA[0], pA[1]); ctx.lineTo(pB[0], pB[1]); ctx.lineTo(apex[0], apex[1]);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
+  }
+
+  // 6. Sun Trajectory Arc
+  const arcR = padHalf + 18;
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.20)';
+  ctx.lineWidth = 1.2 * dpr;
+  ctx.setLineDash([4 * dpr, 5 * dpr]);
+  ctx.beginPath();
+  for (let h = 6; h <= 18; h += 0.3) {
+    const s = getTrueSun(h);
+    const p = proj(s.vx * arcR, s.vy * arcR, s.vz * arcR);
+    h === 6 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  if (sun.above) {
+    const sp = proj(sun.vx * arcR, sun.vy * arcR, sun.vz * arcR);
+    const sg = ctx.createRadialGradient(sp[0], sp[1], 2, sp[0], sp[1], 28 * dpr);
+    sg.addColorStop(0, 'rgba(254,243,199,0.95)');
+    sg.addColorStop(0.4, 'rgba(245,158,11,0.5)');
+    sg.addColorStop(1, 'rgba(245,158,11,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(sp[0], sp[1], 28 * dpr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fffbeb';
+    ctx.beginPath(); ctx.arc(sp[0], sp[1], 6 * dpr, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ============================================================================
+   HUD, DESIGN ADVISOR, POLAR ROSE & USB SERIAL BINDING
+   ============================================================================ */
+function formatClock(hr) {
+  const h24 = Math.floor(hr), m = Math.floor((hr - h24) * 60);
+  return `${String(h24 % 12 || 12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${h24 >= 12 ? 'PM' : 'AM'}`;
+}
+
+function drawRose(canvas, sensors) {
+  const c = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2, R = w * 0.39;
+  c.clearRect(0, 0, w, h);
+  c.strokeStyle = 'rgba(255,255,255,0.08)';
+  c.beginPath(); c.arc(cx, cy, R * 0.5, 0, Math.PI * 2); c.stroke();
+  c.beginPath(); c.arc(cx, cy, R * 0.9, 0, Math.PI * 2); c.stroke();
+  for (let i = 0; i < 9; i++) {
+    const [az, el] = DOME_ANGLES[i];
+    const r = ((90 - el) / 68) * R;
+    const px = cx + Math.sin(az * D) * r, py = cy - Math.cos(az * D) * r;
+    const v = sensors[i];
+    c.fillStyle = `hsla(${38 + 14 * v}, 96%, ${46 + 36 * v}%, ${0.28 + 0.72 * v})`;
+    c.beginPath(); c.arc(px, py, 5 + v * 6, 0, Math.PI * 2); c.fill();
+  }
+}
+
+function drawChart() {
+  const cvC = $('sim-chart');
+  const c = cvC.getContext('2d');
+  const w = cvC.width = (cvC.clientWidth || 260) * dpr;
+  const h = cvC.height = (cvC.clientHeight || 86) * dpr;
+  c.clearRect(0, 0, w, h);
+
+  const peakScale = Math.max(20, ...histYour, ...histFixed) * 1.15;
+  const plot = (arr, col, lw) => {
+    c.strokeStyle = col; c.lineWidth = lw * dpr;
+    c.beginPath();
+    for (let i = 0; i < HIST_N; i++) {
+      const x = (i / (HIST_N - 1)) * w;
+      const y = h - clamp(arr[i] / peakScale, 0, 0.95) * (h - 8 * dpr) - 4 * dpr;
+      i ? c.lineTo(x, y) : c.moveTo(x, y);
+    }
+    c.stroke();
+  };
+  plot(histFixed, '#64748b', 1.4);
+  plot(histYour, '#f59e0b', 2.2);
+}
+
+function refreshInspectorHeader() {
+  const cell = cells[selectedCellKey];
+  if (!cell || cell.type === 'empty' || cell.type === 'obstacle') {
+    $('insp-empty').style.display = 'block';
+    $('insp-body').classList.remove('visible');
+    $('sel-badge').textContent = cell && cell.type === 'obstacle' ? 'OBSTACLE' : 'NONE';
+    return;
+  }
+  $('insp-empty').style.display = 'none';
+  $('insp-body').classList.add('visible');
+
+  if (cell.type === 'dome') {
+    $('sel-hdr').textContent = `DOME-${cell.domeId} · (${cell.gx}, ${cell.gz})`;
+    $('sel-badge').textContent = cell.mode.toUpperCase();
+    $('dome-rose-row').style.display = 'grid';
+    $('dome-btns').style.display = 'flex';
+    $('panel-info-rows').style.display = 'none';
+    $('btn-fault-dome').classList.toggle('active', cell.faulted);
+    $('btn-fault-dome').textContent = cell.faulted ? 'Clear Fault' : 'Inject Fault';
+  } else if (cell.type === 'panel') {
+    $('sel-hdr').textContent = `SOLAR PANEL · (${cell.gx}, ${cell.gz})`;
+    $('sel-badge').textContent = cell.masterDome ? `ZONE D${cell.masterDome.domeId}` : 'UNLINKED';
+    $('dome-rose-row').style.display = 'none';
+    $('dome-btns').style.display = 'none';
+    $('panel-info-rows').style.display = 'flex';
+  }
+}
+
+function updateTelemetryHud(stats) {
+  const { sun, totalYourKw, panelCount } = stats;
+  $('clock-lbl').textContent = formatClock(simHour);
+  $('sun-el-lbl').textContent = sun.above ? `SUN EL ${sun.el.toFixed(0)}°` : 'NIGHT';
+  $('kpi-kw').textContent = `${totalYourKw.toFixed(1)} kW`;
+  $('kpi-counts').textContent = `${panelCount} / ${domes.length}`;
+  $('kpi-cap').textContent = `${(panelCount * PANEL_KW).toFixed(1)} kWp Installed`;
+
+  const gain = cumFixedKwh > 0.02 ? ((cumYourKwh - cumFixedKwh) / cumFixedKwh) * 100 : 0;
+  $('kpi-gain').textContent = `${gain >= 0 ? '+' : ''}${gain.toFixed(1)}% vs Fixed`;
+  $('kwh-total').textContent = `${cumYourKwh.toFixed(2)} kWh`;
+
+  // Master-Slave Design Advisor (directly teaches project thesis!)
+  const adv = $('arch-advice');
+  if (panelCount === 0) {
+    adv.style.color = 'var(--muted)';
+    adv.textContent = 'Click/drag on grid to place Solar Panels.';
+  } else if (domes.length === 0) {
+    adv.style.color = 'var(--rose)';
+    adv.textContent = '⚠ 0 Domes placed! Panels stuck flat (0°). Add a Dome Sensor!';
+  } else if (domes.length === 1 && panelCount > 10) {
+    adv.style.color = 'var(--cyan)';
+    adv.textContent = `1 Dome → ${panelCount} panels: Add a 2nd Dome for cloud zones & fault failover!`;
+  } else if (panelCount / domes.length < 2.5) {
+    adv.style.color = 'var(--amber)';
+    adv.textContent = `High sensor cost (1:${(panelCount / domes.length).toFixed(1)}). 1 Dome can guide 6–12 panels!`;
+  } else {
+    adv.style.color = 'var(--green)';
+    adv.textContent = `✓ Optimal Zonal Ratio (1:${Math.round(panelCount / domes.length)}) · Multi-zone & failover active!`;
+  }
+
+  const cell = cells[selectedCellKey];
+  if (cell && cell.type === 'dome') {
+    $('sel-badge').textContent = cell.outlier ? 'CONSENSUS' : cell.mode.toUpperCase();
+    $('ins-azel').textContent = cell.estOk ? `${cell.az.toFixed(0)}° / ${cell.el.toFixed(0)}°` : '—';
+    $('ins-spread').textContent = cell.spread.toFixed(2);
+    $('ins-slaves').textContent = `${cell.slaveCount} panels`;
+    $('ins-tilt').textContent = `${cell.currentTilt >= 0 ? '+' : ''}${cell.currentTilt.toFixed(1)}°`;
+    drawRose($('sel-rose'), cell.sensors);
+  } else if (cell && cell.type === 'panel') {
+    $('ins-master').textContent = cell.masterDome ? `DOME-${cell.masterDome.domeId}` : 'None (Fixed 0°)';
+    $('ins-ptilt').textContent = `${cell.tilt >= 0 ? '+' : ''}${cell.tilt.toFixed(1)}°`;
+    $('ins-pshade').textContent = `${Math.round(cell.cloud * 100)}% / ${Math.round(Math.max(cell.rowShade, cell.obsShade) * 100)}%`;
+    $('ins-pkw').textContent = `${cell.kw.toFixed(2)} kW`;
+  }
+
+  drawChart();
+}
+
+async function bindUsbToSelectedDome() {
+  const cell = cells[selectedCellKey];
+  if (!cell || cell.type !== 'dome') return;
+  if (!('serial' in navigator)) {
+    alert('Web Serial requires Chrome or Edge.');
+    return;
+  }
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    cell.serialPort = port;
+    const dec = new TextDecoderStream();
+    port.readable.pipeTo(dec.writable);
+    const rd = dec.readable.getReader();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await rd.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        const nums = line.split(/[\s,;]+/).map(Number);
+        if (nums.length >= 5 && nums.slice(0, 5).every(Number.isFinite)) {
+          const scale = nums.some(v => v > 1.5) ? 4095 : 1;
+          cell.rawLive = nums.map(v => clamp(v / scale, 0, 1));
+          cell.liveTs = performance.now();
+        }
+      }
+      if (buf.length > 2048) buf = '';
+    }
+  } catch (err) {
+    if (err && err.name !== 'NotFoundError') alert('Serial Error: ' + err.message);
+  }
+}
+
+/* ============================================================================
+   TOOL & UI BINDINGS
+   ============================================================================ */
+function selectTool(tool) {
+  activeTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+  cv.classList.toggle('inspect-mode', tool === 'inspect');
+}
+
+document.querySelectorAll('.tool-btn').forEach(btn => {
+  btn.addEventListener('click', () => selectTool(btn.dataset.tool));
+});
+
+$('grid-size-sel').onchange = e => initGrid(+e.target.value);
+
+$('btn-view-3d').onclick = () => {
+  cam.targetYaw = -28; cam.targetPitch = 40;
+  $('btn-view-3d').classList.add('active');
+  $('btn-view-2d').classList.remove('active');
+};
+$('btn-view-2d').onclick = () => {
+  cam.targetYaw = 0; cam.targetPitch = 88.5;
+  $('btn-view-2d').classList.add('active');
+  $('btn-view-3d').classList.remove('active');
+};
+
+$('chk-links').onchange = e => { showLinks = e.target.checked; };
+$('chk-bt').onchange = e => { backtrackOn = e.target.checked; };
+
+$('weather-sel').onchange = e => {
+  weatherMode = e.target.value;
+  if (weatherMode === 'clear') { cloudMaster = 0; $('cloud-slider').value = 0; }
+  else if (weatherMode === 'scattered') { cloudMaster = 0.45; $('cloud-slider').value = 0.45; }
+  else if (weatherMode === 'front') { cloudMaster = 0.80; $('cloud-slider').value = 0.80; }
+  else if (weatherMode === 'overcast') { cloudMaster = 0.92; $('cloud-slider').value = 0.92; }
+};
+
+$('pre-empty').onclick  = () => loadBlueprint('empty');
+$('pre-single').onclick = () => loadBlueprint('single');
+$('pre-zonal').onclick  = () => loadBlueprint('zonal');
+$('pre-shade').onclick  = () => loadBlueprint('shade');
+
+$('btn-usb-dome').onclick = bindUsbToSelectedDome;
+$('btn-fault-dome').onclick = () => {
+  const cell = cells[selectedCellKey];
+  if (cell && cell.type === 'dome') {
+    cell.faulted = !cell.faulted;
+    refreshInspectorHeader();
+  }
+};
+
+$('btn-play').onclick = () => {
+  playing = !playing;
+  $('btn-play').textContent = playing ? 'Pause' : 'Play';
+  $('btn-play').classList.toggle('active', playing);
+};
+$('btn-speed').onclick = () => {
+  speedIdx = (speedIdx + 1) % SPEEDS.length;
+  $('btn-speed').textContent = `${SPEEDS[speedIdx]}×`;
+};
+$('time-slider').oninput = e => { simHour = +e.target.value; };
+$('cloud-slider').oninput = e => {
+  cloudMaster = +e.target.value;
+  if (cloudMaster > 0.02 && weatherMode === 'clear') {
+    weatherMode = 'scattered';
+    $('weather-sel').value = 'scattered';
+  }
+};
+
+addEventListener('keydown', e => {
+  if (e.key === '1') selectTool('panel');
+  else if (e.key === '2') selectTool('dome');
+  else if (e.key === '3') selectTool('obstacle');
+  else if (e.key === '4') selectTool('inspect');
+  else if (e.key === '5') selectTool('erase');
+  else if (e.key === ' ') { e.preventDefault(); $('btn-play').click(); }
+});
+
+// Start on a clean empty 12x12 grid ready for the user to build!
+initGrid(12);
+
+let prevTs = performance.now(), hudT = 0;
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - prevTs) / 1000);
+  prevTs = ts;
+
+  const stats = stepPhysics(dt);
+  renderScene(stats);
+
+  hudT += dt;
+  if (hudT > 0.1) {
+    hudT = 0;
+    updateTelemetryHud(stats);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
