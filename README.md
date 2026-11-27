@@ -183,3 +183,12 @@ An interactive grid-based simulator (`solar_farm_builder.html`) where anyone can
 - **Automatic Voronoi Master–Slave Zone Linking:** Every placed panel automatically links to its nearest Dome Sensor with color-coded zone tiles and control tethers (or remains fixed at `0°` if no Dome Sensor is placed).
 - **Dynamic Row-Spacing & Obstacle Shadow Physics:** Placing panels on adjacent East–West cells introduces real row-to-row shading unless **Row Backtracking** is enabled; placing obstacles casts 3D solar shadows across neighboring cells and sensors.
 - **Live Master–Slave Design Advisor:** Evaluates your sensor-to-panel ratio (`1:N`), cloud resilience, and peer-consensus failover readiness in real time.
+
+---
+
+## ⚙️ Dual-Axis Stacked Servo Firmware (`dome_servo_r4_wifi.ino`)
+
+Drives two stacked `180°` pan-tilt servos via a **PCA9685 (`0x40`)** on an **Arduino UNO R4 WiFi**, linked to the **ESP32 Dome Sensor**:
+
+- `dome_servo_r4_wifi.ino` — Runs on **Arduino UNO R4 WiFi**: solves 3D Least-Squares sun direction, maps full $360^\circ$ sky dome onto stacked Base (`Ch 0`, `0–180°`) + Tilt (`Ch 1`, `0–180°`, `90° = flat zenith`) servos with `3°` anti-hunting deadband, cloudy-sky flat stow, darkness hold, and instant manual jumper override on Pins `2, 3, 4, 5`.
+- `dome_sensor_esp32_to_r4.ino` — Optional companion ESP32 sketch that keeps streaming `S1..S5` over USB to the web dashboard while simultaneously forwarding to the UNO R4 WiFi over `GPIO 17 (TX2) -> R4 Pin 0 (RX)` (or wireless Wi-Fi UDP when `USE_WIFI_UDP 1`).
