@@ -161,3 +161,14 @@ A custom hollow hemispherical dome model has been designed for 3D printing, feat
 - **Layer Height:** `0.20 mm` (or `0.16 mm` for ultra-smooth dome finish).
 - **Perimeters / Walls:** `3 to 4 walls` (ensures the 3.2 mm shell is nearly 100% solid plastic).
 - **Infill:** `20% - 30% Gyroid` or `Grid`.
+
+---
+
+## 🌐 Multi-Dome Solar Farm Digital Twin (`solar_farm.html`)
+
+A standalone utility-scale SCADA simulator (`solar_farm.html`) models an entire **151.2 kWp solar farm (36 tracker tables across 4 quadrants)** governed by **4× 9-Photodiode Dome Sensor Masts** (`DOME-A` through `DOME-D`):
+
+- **Phase 1 — 3D Isometric Plant Digital Twin:** 36 animated single-axis solar tables with real-time solar shadow casting, solar trajectory arc (`06:00`–`18:30`), and smooth Orbit/Pan/Zoom camera.
+- **Phase 2 — Multi-Node Hardware & Polar Telemetry:** Bind **1 to 4 physical ESP32 Dome Sensors** over Web Serial to individual farm zones, or use **Mirror 1 ESP32 → Farm** to propagate a single hardware prototype across all 4 zones with spatial cloud attenuation.
+- **Phase 3 — Cloud Transients, Backtracking & Consensus:** Drifting cloud cells trigger localized `FLAT STOW` in shaded quadrants while sunlit quadrants keep tracking; **NREL row-to-row backtracking** ($\text{GCR} = 0.48$) prevents low-sun self-shading; **1-click Sensor Fault injection** demonstrates neighbor-dome consensus failover.
+- **Phase 4 — 3-Way Net Energy & Motor Wear Ledger:** Real-time kW chart and cumulative kWh comparison between **Adaptive Multi-Dome**, **Astronomical Clock Tracker**, and **Fixed-Tilt** arrays, accounting for actuator motor power saved via deadband holding and cloud stow.

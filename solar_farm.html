@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar Farm SCADA · Multi-Dome Digital Twin</title>
+<style>
+:root {
+  --bg: #06080d;
+  --panel: rgba(11, 15, 24, 0.80);
+  --panel-strong: rgba(11, 15, 24, 0.92);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-hi: rgba(245, 158, 11, 0.45);
+  --amber: #f59e0b;
+  --amber-glow: rgba(245, 158, 11, 0.32);
+  --cyan: #38bdf8;
+  --green: #10b981;
+  --violet: #a78bfa;
+  --rose: #f43f5e;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --dim: #64748b;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  overflow: hidden;
+  user-select: none;
+}
+
+canvas#farm-cv {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  cursor: grab;
+  touch-action: none;
+  z-index: 1;
+}
+canvas#farm-cv.drag { cursor: grabbing; }
+
+/* Top Command Bar */
+header.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 54px; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 18px;
+  background: linear-gradient(180deg, rgba(6,8,13,0.95) 0%, rgba(6,8,13,0.72) 85%, transparent 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  pointer-events: none;
+}
+header.topbar > * { pointer-events: auto; }
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  display: grid; place-items: center;
+  box-shadow: 0 0 16px var(--amber-glow);
+}
+.brand-mark svg { width: 18px; height: 18px; fill: #07090e; }
+.brand-copy h1 {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #fff;
+}
+.brand-copy p {
+  font-size: 10.5px; color: var(--muted); font-family: var(--mono);
+}
+
+/* Phase / View Mode Tabs */
+.mode-tabs {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px; border-radius: 10px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+.tab-btn {
+  font: 600 11.5px var(--sans);
+  color: var(--muted);
+  background: transparent;
+  border: none; border-radius: 7px;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.tab-btn:hover { color: #fff; }
+.tab-btn.active {
+  background: rgba(245, 158, 11, 0.18);
+  color: var(--amber);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.38);
+}
+
+.top-controls {
+  display: flex; align-items: center; gap: 8px;
+}
+.select-pill {
+  font: 600 11.5px var(--sans);
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  outline: none;
+}
+.select-pill option { background: #0f172a; color: #fff; }
+
+.btn {
+  font: 600 11.5px var(--sans);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 11px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all 0.18s;
+  backdrop-filter: blur(8px);
+}
+.btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--amber);
+  color: #fff;
+}
+.btn.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.btn.danger {
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #fda4af;
+}
+.btn.danger.active {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: var(--rose);
+  color: #fff;
+}
+.btn svg { width: 13px; height: 13px; fill: currentColor; }
+
+/* Main HUD Overlay Grid */
+.hud-grid {
+  position: fixed;
+  top: 62px; bottom: 72px; left: 16px; right: 16px;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.hud-grid.cinema { opacity: 0; pointer-events: none !important; }
+
+.col-left, .col-right {
+  width: 304px;
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+  transition: transform 0.28s ease, opacity 0.25s ease;
+}
+.col-left::-webkit-scrollbar, .col-right::-webkit-scrollbar { display: none; }
+
+.hud-grid.focus-sensors .col-right .energy-panel { display: none; }
+.hud-grid.focus-energy .col-right .inspector-panel { display: none; }
+.hud-grid.focus-energy .col-right { width: 350px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 13px 14px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+}
+
+.card-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.card-title {
+  font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.9px;
+  color: var(--muted);
+}
+
+/* KPI Grid */
+.kpi-strip {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.kpi-box {
+  background: rgba(0,0,0,0.34);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 9px;
+  padding: 8px 10px;
+}
+.kpi-lbl { font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+.kpi-val {
+  font-family: var(--mono); font-size: 17px; font-weight: 700; color: #fff;
+}
+.kpi-sub {
+  font-family: var(--mono); font-size: 10px; color: var(--green); margin-top: 1px;
+}
+
+/* 4 Zone Cards */
+.zone-list {
+  display: flex; flex-direction: column; gap: 7px;
+}
+.zone-item {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: all 0.16s;
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: 9px;
+}
+.zone-item:hover {
+  border-color: rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.05);
+}
+.zone-item.selected {
+  border-color: var(--amber);
+  background: rgba(245, 158, 11, 0.09);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.14);
+}
+.zone-rose {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.zone-meta h3 {
+  font-size: 12px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; gap: 6px;
+}
+.src-tag {
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  padding: 1px 5px; border-radius: 4px;
+  background: rgba(255,255,255,0.08); color: var(--muted);
+}
+.src-tag.live {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--green);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.src-tag.mirror {
+  background: rgba(56, 189, 248, 0.18);
+  color: var(--cyan);
+}
+.zone-meta p {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px;
+}
+
+.mode-pill {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  padding: 3px 7px; border-radius: 5px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.mode-pill.track { background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.35); }
+.mode-pill.hold  { background: rgba(56,189,248,0.14); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); }
+.mode-pill.stow  { background: rgba(148,163,184,0.16); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.3); }
+.mode-pill.bt    { background: rgba(167,139,250,0.18); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.35); }
+.mode-pill.fault { background: rgba(244,63,94,0.20); color: #fda4af; border: 1px solid rgba(244,63,94,0.45); }
+.mode-pill.dark  { background: rgba(255,255,255,0.05); color: var(--dim); }
+
+/* Right Column: Selected Dome Node Inspector */
+.inspector-top {
+  display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center;
+  margin-bottom: 10px;
+}
+.big-rose-wrap {
+  width: 112px; height: 112px;
+  background: rgba(0,0,0,0.42);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 50%;
+  position: relative;
+}
+canvas#inspector-rose { width: 100%; height: 100%; display: block; }
+
+.insp-stats { display: flex; flex-direction: column; gap: 5px; }
+.stat-line {
+  display: flex; justify-content: space-between; font-size: 11.5px;
+}
+.stat-line span.k { color: var(--muted); }
+.stat-line span.v { font-family: var(--mono); font-weight: 600; color: #fff; }
+
+.insp-actions {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
+}
+.insp-actions .btn { flex: 1; justify-content: center; padding: 6px 8px; font-size: 11px; }
+
+/* Energy Comparison Chart */
+.chart-wrap {
+  width: 100%; height: 122px;
+  background: rgba(0,0,0,0.38);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 9px;
+  padding: 6px;
+  margin-bottom: 8px;
+}
+canvas#power-chart { width: 100%; height: 100%; display: block; }
+
+.legend-row {
+  display: flex; justify-content: space-between; gap: 6px;
+  font-size: 10.5px; font-family: var(--mono); color: var(--muted);
+}
+.leg-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px;
+}
+
+.ledger-rows {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 11px;
+}
+.ledger-line { display: flex; justify-content: space-between; }
+.ledger-line .v { font-family: var(--mono); font-weight: 600; }
+
+/* Bottom Floating Timeline Scrubber */
+.timeline-dock {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 20;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.55);
+  min-width: min(760px, 94vw);
+}
+.clock-readout {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--amber); min-width: 78px; text-align: center;
+}
+.scrubber-group {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+}
+.scrubber-group label {
+  font-size: 10.5px; font-family: var(--mono); color: var(--muted); white-space: nowrap;
+}
+input[type="range"].bar-slider {
+  flex: 1; accent-color: var(--amber); cursor: pointer; height: 4px;
+}
+.divider {
+  width: 1px; height: 22px; background: rgba(255,255,255,0.1);
+}
+
+.toggle-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
+.toggle-chip input { accent-color: var(--amber); cursor: pointer; }
+
+@media (max-width: 1024px) {
+  .mode-tabs { display: none; }
+  .col-left, .col-right { width: 265px; }
+  .timeline-dock { min-width: 94vw; flex-wrap: wrap; justify-content: center; gap: 8px; }
+}
+@media (max-width: 760px) {
+  .col-right { display: none; }
+  .col-left { width: calc(100vw - 32px); max-height: 44vh; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="farm-cv" aria-label="3D Solar Farm Digital Twin"></canvas>
+
+<!-- Top Command Bar -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 4.5-9 4.5-9-4.5L12 3zm0 11.2l6.8-3.4L21 12l-9 4.5L3 12l2.2-1.2 6.8 3.4zm0 4.3l6.8-3.4L21 16.3 12 20.8 3 16.3l2.2-1.2 6.8 3.4z"/></svg>
+    </div>
+    <div class="brand-copy">
+      <h1>Solar Farm Digital Twin</h1>
+      <p>4× 9-Sensor Dome Nodes · 36 Tracker Tables · Zonal SCADA</p>
+    </div>
+  </div>
+
+  <!-- Screen Phase / View Switcher -->
+  <div class="mode-tabs" role="tablist" aria-label="Screen Layout Mode">
+    <button class="tab-btn active" data-view="all">Full SCADA</button>
+    <button class="tab-btn" data-view="sensors">Sensor Nodes</button>
+    <button class="tab-btn" data-view="energy">Energy Ledger</button>
+    <button class="tab-btn" data-view="cinema">Cinema 3D</button>
+  </div>
+
+  <div class="top-controls">
+    <select class="select-pill" id="weather-preset" title="Atmospheric Sky Scenario">
+      <option value="scattered" selected>Weather: Scattered Cumulus</option>
+      <option value="clear">Weather: Clear Direct Sun</option>
+      <option value="front">Weather: Passing Cloud Front</option>
+      <option value="overcast">Weather: Heavy Overcast (Stow)</option>
+    </select>
+    <button class="btn" id="btn-mirror-hw" title="Propagate Zone A's live ESP32 stream across all 4 zones with cloud delay">
+      Mirror 1 ESP32 → Farm
+    </button>
+    <button class="btn" id="btn-reset-cam" title="Reset 3D Camera Orbit">Reset Cam</button>
+  </div>
+</header>
+
+<!-- Left & Right HUD Columns -->
+<div class="hud-grid" id="hud-grid">
+
+  <!-- LEFT: Plant KPIs + 4 Zonal Dome Nodes -->
+  <div class="col-left">
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Plant Generation Telemetry</span>
+        <span id="sun-badge" style="font:600 10.5px var(--mono);color:var(--amber)">SUN EL 45°</span>
+      </div>
+      <div class="kpi-strip">
+        <div class="kpi-box">
+          <div class="kpi-lbl">Multi-Dome Output</div>
+          <div class="kpi-val" id="kpi-kw">0.0 kW</div>
+          <div class="kpi-sub" id="kpi-gain-fixed">+0.0% vs Fixed</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-lbl">Motor Duty Saved</div>
+          <div class="kpi-val" id="kpi-saved">0%</div>
+          <div class="kpi-sub" id="kpi-gain-clock" style="color:var(--cyan)">+0.0% vs Clock</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">Zonal Dome Sensor Masts (Click to Inspect)</span>
+        <span style="font:600 10px var(--mono);color:var(--dim)">4 CLUSTERS</span>
+      </div>
+      <div class="zone-list" id="zone-list">
+        <!-- Populated dynamically for Zones A, B, C, D -->
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Selected Dome Node Inspector + 3-Way Energy Comparison -->
+  <div class="col-right">
+
+    <div class="card inspector-panel">
+      <div class="card-hdr">
+        <span class="card-title" id="insp-title">DOME-A (NW QUADRANT) · 9 CHANNELS</span>
+        <span class="mode-pill hold" id="insp-pill">HOLD</span>
+      </div>
+
+      <div class="inspector-top">
+        <div class="big-rose-wrap">
+          <canvas id="inspector-rose" width="224" height="224"></canvas>
+        </div>
+        <div class="insp-stats">
+          <div class="stat-line"><span class="k">Est. Sun Az / El</span><span class="v" id="insp-azel">— / —</span></div>
+          <div class="stat-line"><span class="k">Local Direct / Cloud</span><span class="v" id="insp-cloud">100% / 0%</span></div>
+          <div class="stat-line"><span class="k">Ring Spread</span><span class="v" id="insp-spread">0.00</span></div>
+          <div class="stat-line"><span class="k">Zone Tilt Target</span><span class="v" id="insp-tilt" style="color:var(--amber)">0.0°</span></div>
+          <div class="stat-line"><span class="k">Zone Output (9 Tables)</span><span class="v" id="insp-kw">0.0 kW</span></div>
+        </div>
+      </div>
+
+      <div class="insp-actions">
+        <button class="btn" id="btn-bind-serial" title="Bind a physical ESP32 over USB Serial to this Zone">
+          <svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+          <span id="lbl-bind-serial">Bind USB Serial</span>
+        </button>
+        <button class="btn danger" id="btn-fault" title="Simulate bird-dropping / dust shading on this Dome Sensor to test neighbor consensus failover">
+          Inject Sensor Fault
+        </button>
+      </div>
+    </div>
+
+    <div class="card energy-panel">
+      <div class="card-hdr">
+        <span class="card-title">Plant Power Comparison (kW)</span>
+        <span style="font:600 10px var(--mono);color:var(--green)" id="net-kwh-lbl">0.0 kWh</span>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="power-chart"></canvas>
+      </div>
+
+      <div class="legend-row">
+        <span><i class="leg-dot" style="background:#f59e0b"></i>Adaptive Domes</span>
+        <span><i class="leg-dot" style="background:#38bdf8"></i>Clock Tracker</span>
+        <span><i class="leg-dot" style="background:#64748b"></i>Fixed Flat</span>
+      </div>
+
+      <div class="ledger-rows">
+        <div class="ledger-line">
+          <span style="color:var(--muted)">Adaptive Multi-Dome Yield</span>
+          <span class="v" style="color:var(--amber)" id="led-adapt">0.00 kWh</span>
+        </div>
+        <div class="ledger-line">
+          <span style="color:var(--muted)">Astronomical Clock Yield</span>
+          <span class="v" style="color:var(--cyan)" id="led-clock">0.00 kWh</span>
+        </div>
+        <div class="ledger-line">
+          <span style="color:var(--muted)">Fixed Array Yield</span>
+          <span class="v" style="color:var(--muted)" id="led-fixed">0.00 kWh</span>
+        </div>
+        <div class="ledger-line">
+          <span style="color:var(--muted)">Actuator Parasitic Energy</span>
+          <span class="v" style="color:var(--green)" id="led-motor">0.0 Wh</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Bottom Scrubber & Simulation Controls -->
+<div class="timeline-dock" id="timeline-dock">
+  <button class="btn active" id="btn-play" style="min-width:68px;justify-content:center">Pause</button>
+  <button class="btn" id="btn-speed" title="Simulation Time Warp">10×</button>
+  <div class="clock-readout" id="clock-txt">09:30 AM</div>
+
+  <div class="scrubber-group">
+    <label for="time-slider">SOLAR TIME</label>
+    <input type="range" class="bar-slider" id="time-slider" min="5.75" max="18.25" step="0.02" value="9.5">
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="scrubber-group" style="max-width:165px">
+    <label for="cloud-slider">CLOUDS</label>
+    <input type="range" class="bar-slider" id="cloud-slider" min="0" max="1" step="0.02" value="0.48">
+  </div>
+
+  <div class="divider"></div>
+
+  <label class="toggle-chip" title="Flatten panel tilt at low sun elevations (<28°) to prevent front-row shadow casting on back rows">
+    <input type="checkbox" id="chk-backtrack" checked>
+    Backtracking
+  </label>
+</div>
+
+<script>
+/* ============================================================================
+   MULTI-DOME SOLAR FARM DIGITAL TWIN & ZONAL SCADA SIMULATOR
+   Standalone file — preserves 100% compatibility with 5-ch & 9-ch ESP32 Domes
+   Coordinate System: +X = East, +Y = Zenith (Up), +Z = North
+   ============================================================================ */
+
+const D = Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const $ = id => document.getElementById(id);
+
+/* 9-Photodiode Hemispherical Geometry (matches dome_sensor_9.scad)
+   First 5 channels match the 5-photodiode ESP32 sketch! */
+const DOME_ANGLES = [
+  [  0, 90], // S1 Zenith (Top)
+  [  0, 60], // S2 North
+  [ 90, 60], // S3 East
+  [180, 60], // S4 South
+  [270, 60], // S5 West
+  [ 45, 30], // S6 NE (Sunrise/Low)
+  [135, 30], // S7 SE (Sunrise)
+  [225, 30], // S8 SW (Sunset)
+  [315, 30]  // S9 NW (Sunset/Low)
+];
+const S_NORMALS = DOME_ANGLES.map(([az, el]) => [
+  Math.cos(el * D) * Math.sin(az * D), // +X East
+  Math.sin(el * D),                    // +Y Up
+  Math.cos(el * D) * Math.cos(az * D)  // +Z North
+]);
+
+/* Farm Geometry Constants */
+const GCR = 0.48;              // Ground Coverage Ratio (panel width / E-W row pitch)
+const TABLE_KW_PEAK = 4.2;     // 4.2 kWp per tracker table × 36 tables = 151.2 kWp plant
+const MOTOR_KW = 0.018;        // 18 W actuator draw per moving table
+const DEADBAND_DEG = 3.2;      // Hold deadband in degrees (prevents hunting)
+const CLOUD_SPREAD_THR = 0.22; // Ring spread below 0.22 => Diffuse sky -> Flat stow
+
+/* 4 Master-Slave Zones (Quadrants) */
+const ZONES = [
+  { id: 'A', code: 'DOME-A', name: 'NW Quadrant', cx: -42, cz:  38, mastX: -14, mastZ:  14 },
+  { id: 'B', code: 'DOME-B', name: 'NE Quadrant', cx:  42, cz:  38, mastX:  14, mastZ:  14 },
+  { id: 'C', code: 'DOME-C', name: 'SW Quadrant', cx: -42, cz: -38, mastX: -14, mastZ: -14 },
+  { id: 'D', code: 'DOME-D', name: 'SE Quadrant', cx:  42, cz: -38, mastX:  14, mastZ: -14 }
+].map((z, idx) => ({
+  ...z,
+  idx,
+  sensors: new Float32Array(9),
+  rawLive: null,
+  liveTs: -1e9,
+  liveSrc: '',
+  serialPort: null,
+  faulted: false,
+  estOk: false,
+  estVec: [0, 1, 0],
+  az: 0,
+  el: 0,
+  spread: 0,
+  localCloud: 0,
+  mode: 'hold',        // 'track' | 'hold' | 'stow' | 'bt' | 'fault' | 'dark'
+  targetTilt: 0,       // degrees (-60 West .. +60 East)
+  currentTilt: 0,
+  moving: false,
+  zoneKw: 0,
+  tables: []
+}));
+
+/* Populate 3x3 = 9 Solar Tracker Tables inside each Quadrant (36 tables total) */
+ZONES.forEach(z => {
+  const pitchX = 22, pitchZ = 21;
+  for (let rx = -1; rx <= 1; rx++) {
+    for (let rz = -1; rz <= 1; rz++) {
+      z.tables.push({
+        x: z.cx + rx * pitchX,
+        z: z.cz + rz * pitchZ,
+        tilt: 0,
+        cloud: 0,
+        kw: 0
+      });
+    }
+  }
+});
+
+/* Procedural Drifting Cloud Cells */
+const CLOUDS = [
+  { x: -75, z:  42, rx: 38, rz: 28, density: 0.92, vx: 11.5, vz: -1.8 },
+  { x:  18, z: -32, rx: 44, rz: 30, density: 0.88, vx: 10.2, vz: -1.4 },
+  { x: -135, z: -18, rx: 48, rz: 34, density: 0.95, vx: 12.4, vz: -2.0 },
+  { x:  95, z:  46, rx: 35, rz: 25, density: 0.85, vx:  9.8, vz: -1.5 }
+];
+
+/* Simulation State */
+let simHour = 9.5;          // 09:30 AM start so shadows & tracking look dramatic right away
+let playing = true;
+const SPEEDS = [1, 10, 30, 60];
+let speedIdx = 1;           // Default 10x
+let cloudMaster = 0.48;
+let weatherMode = 'scattered';
+let backtrackOn = true;
+let mirrorHw = false;
+let selectedZone = 0;
+
+/* Energy Cumulative Ledger & Rolling Chart */
+const ledger = {
+  adaptKwh: 0,
+  clockKwh: 0,
+  fixedKwh: 0,
+  motorWh: 0,
+  totalTicks: 0,
+  savedTicks: 0
+};
+const CHART_LEN = 90;
+const histAdapt = Array(CHART_LEN).fill(0);
+const histClock = Array(CHART_LEN).fill(0);
+const histFixed = Array(CHART_LEN).fill(0);
+
+/* 3x3 Least-Squares Direction Solver (exact math from Dome_Sensor_5.html) */
+function det3(m) {
+  return m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+       - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+       + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+}
+
+function solveLeastSquares(vals, count) {
+  let mx = 0;
+  for (let i = 0; i < count; i++) if (vals[i] > mx) mx = vals[i];
+  if (mx < 0.025) return null;
+
+  const thr = Math.max(0.025, 0.08 * mx);
+  const act = [];
+  for (let i = 0; i < count; i++) if (vals[i] > thr) act.push(i);
+
+  let v = null;
+  if (act.length >= 3) {
+    const A = [[0,0,0],[0,0,0],[0,0,0]], b = [0,0,0];
+    for (const i of act) {
+      for (let r = 0; r < 3; r++) {
+        b[r] += S_NORMALS[i][r] * vals[i];
+        for (let c = 0; c < 3; c++) A[r][c] += S_NORMALS[i][r] * S_NORMALS[i][c];
+      }
+    }
+    const d = det3(A);
+    if (Math.abs(d) > 1e-3) {
+      v = [0, 0, 0];
+      for (let k = 0; k < 3; k++) {
+        const M = A.map((row, r) => row.map((val, c) => c === k ? b[r] : val));
+        v[k] = det3(M) / d;
+      }
+    }
+  }
+  if (!v) {
+    v = [0, 0, 0];
+    for (let i = 0; i < count; i++) {
+      v[0] += vals[i] * S_NORMALS[i][0];
+      v[1] += vals[i] * S_NORMALS[i][1];
+      v[2] += vals[i] * S_NORMALS[i][2];
+    }
+  }
+  const mag = Math.hypot(v[0], v[1], v[2]);
+  if (mag < 1e-4) return null;
+  return [v[0] / mag, v[1] / mag, v[2] / mag];
+}
+
+/* True Solar Vector from Solar Time (06:00 sunrise East -> 12:00 high South-Zenith -> 18:00 sunset West) */
+function getTrueSun(hour) {
+  const dayFrac = (hour - 6.0) / 12.0; // 0 at 06:00, 0.5 at 12:00, 1 at 18:00
+  const ha = (dayFrac - 0.5) * Math.PI; // -90° East to +90° West
+  // Peak elevation ~76° (tropical/subtropical solar plant, subtle seasonal south arc)
+  const sinEl = Math.cos(ha) * 0.97;
+  const el = Math.asin(clamp(sinEl, -0.2, 1)) / D;
+  const sx = -Math.sin(ha);             // +X East in morning (ha < 0 => -sin(ha) > 0)
+  const sy = Math.max(0, sinEl);        // +Y Up
+  const sz = -0.24 * Math.cos(ha);      // Slight southern seasonal declination (-Z South)
+  const m = Math.hypot(sx, sy, sz) || 1;
+  return {
+    vx: sx / m, vy: sy / m, vz: sz / m,
+    el,
+    above: el > 1.0
+  };
+}
+
+/* Evaluate Cloud Cover Opacity [0..1] at world coordinate (x, z) */
+function sampleCloudAt(x, z) {
+  if (weatherMode === 'clear' || cloudMaster <= 0.01) return 0;
+  if (weatherMode === 'overcast') return clamp(0.82 + 0.16 * cloudMaster, 0, 0.98);
+
+  let cov = 0;
+  for (const cl of CLOUDS) {
+    const dx = (x - cl.x) / cl.rx;
+    const dz = (z - cl.z) / cl.rz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < 1.6) {
+      const falloff = Math.exp(-d2 * 2.1) * cl.density;
+      cov = 1 - (1 - cov) * (1 - falloff);
+    }
+  }
+  if (weatherMode === 'front') {
+    const band = Math.exp(-Math.pow((x - CLOUDS[0].x * 0.8) / 36, 2)) * 0.92;
+    cov = Math.max(cov, band);
+  }
+  return clamp(cov * (0.45 + 0.75 * cloudMaster), 0, 0.96);
+}
+
+/* NREL Single-Axis Shadow-Free Backtracking Formula */
+function applyBacktracking(idealDeg, sunVec) {
+  const thetaZ = Math.atan2(sunVec[0], Math.max(0.02, sunVec[1])); // radians
+  const ratio = Math.cos(thetaZ) / GCR;
+  if (ratio >= 1.0) return { tilt: clamp(idealDeg, -60, 60), btActive: false };
+  const cutoff = Math.acos(clamp(ratio, 0, 1));
+  const btRad = Math.sign(thetaZ) * Math.max(0, Math.abs(thetaZ) - cutoff);
+  const btDeg = clamp(btRad / D, -60, 60);
+  return { tilt: btDeg, btActive: Math.abs(idealDeg - btDeg) > 1.5 };
+}
+
+/* External Hardware Ingestion (Web Serial per Zone + BroadcastChannel) */
+function ingestZoneReadings(zoneIdx, arr, sourceName) {
+  const z = ZONES[zoneIdx];
+  if (!z) return;
+  const maxAdc = arr.some(v => v > 1.5) ? 4095 : 1;
+  const normalized = arr.map(v => clamp(v / maxAdc, 0, 1));
+  z.rawLive = normalized;
+  z.liveTs = performance.now();
+  z.liveSrc = sourceName;
+}
+
+window.setZoneSensors = (zoneIdx, arr) => ingestZoneReadings(zoneIdx, arr, 'API');
+try {
+  new BroadcastChannel('dome-sensor').onmessage = e => {
+    const s = e.data && (e.data.sensors || e.data);
+    if (Array.isArray(s) && s.length >= 5) ingestZoneReadings(0, s, 'Broadcast');
+  };
+} catch (_) {}
+
+async function bindSerialToZone(zoneIdx) {
+  if (!('serial' in navigator)) {
+    alert('Web Serial requires Google Chrome or Microsoft Edge.');
+    return;
+  }
+  const z = ZONES[zoneIdx];
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    z.serialPort = port;
+    const dec = new TextDecoderStream();
+    port.readable.pipeTo(dec.writable);
+    const rd = dec.readable.getReader();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await rd.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line || line.startsWith('#')) continue;
+        let nums;
+        try {
+          const j = JSON.parse(line);
+          nums = Array.isArray(j) ? j : (j.s || j.sensors);
+        } catch (_) {
+          nums = line.split(/[\s,;]+/).map(Number);
+        }
+        if (nums && nums.length >= 5 && nums.slice(0, 5).every(Number.isFinite)) {
+          ingestZoneReadings(zoneIdx, nums, 'USB');
+        }
+      }
+      if (buf.length > 2048) buf = '';
+    }
+  } catch (err) {
+    if (err && err.name !== 'NotFoundError') {
+      alert('Serial Error: ' + err.message);
+    }
+  }
+  z.serialPort = null;
+}
+
+/* ============================================================================
+   PHYSICS & ZONAL CONTROL STEP
+   ============================================================================ */
+let chartTimer = 0;
+
+function stepSimulation(dt) {
+  if (playing) {
+    const hoursPerSec = SPEEDS[speedIdx] * 0.035;
+    simHour += dt * hoursPerSec;
+    if (simHour > 18.25) simHour = 5.75;
+    $('time-slider').value = simHour.toFixed(2);
+
+    // Drift cloud cells West -> East across the plant
+    const windScale = weatherMode === 'front' ? 1.5 : 1.0;
+    for (const cl of CLOUDS) {
+      cl.x += cl.vx * windScale * dt * (1 + SPEEDS[speedIdx] * 0.04);
+      cl.z += cl.vz * dt;
+      if (cl.x > 165) cl.x = -165;
+      if (cl.z < -95) cl.z = 95;
+    }
+  }
+
+  const sun = getTrueSun(simHour);
+  const now = performance.now();
+
+  // 1. Sample 9-Photodiode Dome Sensors for each of the 4 Zones
+  for (const z of ZONES) {
+    z.localCloud = sampleCloudAt(z.mastX, z.mastZ);
+    const hasDirectLive = (now - z.liveTs) < 2500 && z.rawLive;
+    const hasMirroredLive = !hasDirectLive && mirrorHw && (now - ZONES[0].liveTs) < 2500 && ZONES[0].rawLive;
+
+    let activeChannels = 9;
+    if (hasDirectLive || hasMirroredLive) {
+      const srcArr = hasDirectLive ? z.rawLive : ZONES[0].rawLive;
+      activeChannels = srcArr.length >= 9 ? 9 : 5;
+      const atten = hasMirroredLive ? (1 - 0.72 * z.localCloud) : 1;
+      const iso = hasMirroredLive ? (0.22 * z.localCloud) : 0;
+      for (let i = 0; i < 9; i++) {
+        z.sensors[i] = i < activeChannels ? clamp(srcArr[i] * atten + iso, 0, 1) : 0;
+      }
+    } else {
+      // Physical optical model: Direct beam attenuated by local cloud + Isotropic sky glow
+      if (!sun.above) {
+        z.sensors.fill(0);
+      } else {
+        const atmo = Math.pow(Math.sin(Math.max(2, sun.el) * D), 0.35);
+        const beam = (1 - 0.88 * z.localCloud) * atmo;
+        const diffuse = (0.12 + 0.42 * z.localCloud) * atmo;
+        for (let i = 0; i < 9; i++) {
+          const n = S_NORMALS[i];
+          const cosInc = Math.max(0, n[0]*sun.vx + n[1]*sun.vy + n[2]*sun.vz);
+          const skyView = 0.5 * (1 + n[1]); // Hemisphere sky factor
+          z.sensors[i] = clamp(beam * cosInc + diffuse * skyView, 0, 1);
+        }
+      }
+    }
+
+    // Apply Fault / Soiling injection if enabled on this Dome
+    if (z.faulted) {
+      z.sensors[0] *= 0.08;
+      z.sensors[2] *= 0.05; // Heavy occlusion on East & Zenith
+      z.sensors[4] = clamp(z.sensors[4] + 0.55, 0, 1); // Spurious skew
+    }
+
+    // Ring spread check on S2..S5
+    let rMax = 0, rMin = 1;
+    for (let i = 1; i <= 4; i++) {
+      if (z.sensors[i] > rMax) rMax = z.sensors[i];
+      if (z.sensors[i] < rMin) rMin = z.sensors[i];
+    }
+    z.spread = rMax > 0.02 ? (rMax - rMin) / rMax : 0;
+
+    // Solve 3D Sun Direction via Least Squares
+    const est = solveLeastSquares(z.sensors, activeChannels);
+    if (est) {
+      z.estOk = true;
+      z.estVec = est;
+      z.az = (Math.atan2(est[0], est[2]) / D + 360) % 360;
+      z.el = Math.asin(clamp(est[1], -1, 1)) / D;
+    } else {
+      z.estOk = false;
+      z.estVec = [0, 1, 0];
+      z.az = 0; z.el = 0;
+    }
+  }
+
+  // 2. Cross-Zone Outlier Consensus (detects soiled/faulted Dome sensor vs peers)
+  const healthyZones = ZONES.filter(z => z.estOk && !z.faulted);
+  let consensusVec = [0, 1, 0];
+  if (healthyZones.length > 0) {
+    let cx = 0, cy = 0, cz = 0;
+    for (const hz of healthyZones) {
+      cx += hz.estVec[0]; cy += hz.estVec[1]; cz += hz.estVec[2];
+    }
+    const m = Math.hypot(cx, cy, cz) || 1;
+    consensusVec = [cx / m, cy / m, cz / m];
+  }
+
+  // 3. Zonal Tracking Decisions & Power Accounting
+  let plantAdaptKw = 0, plantClockKw = 0, plantFixedKw = 0, movingTables = 0;
+  const clockIdealDeg = sun.above ? clamp(Math.atan2(sun.vx, Math.max(0.05, sun.vy)) / D, -60, 60) : 0;
+
+  for (const z of ZONES) {
+    // Fault consensus check: compare estimated vector dot product against farm consensus
+    const dotPeer = z.estVec[0]*consensusVec[0] + z.estVec[1]*consensusVec[1] + z.estVec[2]*consensusVec[2];
+    const outlierDetected = z.faulted || (z.estOk && healthyZones.length >= 2 && dotPeer < 0.84);
+
+    const activeVec = outlierDetected ? consensusVec : z.estVec;
+
+    if (!z.estOk && !outlierDetected) {
+      z.mode = 'dark';
+      z.targetTilt = 0;
+    } else if (!outlierDetected && z.spread < CLOUD_SPREAD_THR) {
+      // Diffuse sky -> stow flat (0°) to capture full sky dome & stop motor hunting
+      z.mode = 'stow';
+      z.targetTilt = 0;
+    } else {
+      const rawTilt = clamp(Math.atan2(activeVec[0], Math.max(0.03, activeVec[1])) / D, -60, 60);
+      if (backtrackOn) {
+        const bt = applyBacktracking(rawTilt, activeVec);
+        if (Math.abs(bt.tilt - z.currentTilt) < DEADBAND_DEG) {
+          z.mode = outlierDetected ? 'fault' : 'hold';
+        } else {
+          z.targetTilt = bt.tilt;
+          z.mode = outlierDetected ? 'fault' : (bt.btActive ? 'bt' : 'track');
+        }
+      } else {
+        if (Math.abs(rawTilt - z.currentTilt) < DEADBAND_DEG) {
+          z.mode = outlierDetected ? 'fault' : 'hold';
+        } else {
+          z.targetTilt = rawTilt;
+          z.mode = outlierDetected ? 'fault' : 'track';
+        }
+      }
+    }
+
+    // Smoothly slew zone tilt actuator
+    const diff = z.targetTilt - z.currentTilt;
+    const maxSlew = 32 * dt;
+    if (Math.abs(diff) > 0.25) {
+      z.currentTilt += Math.sign(diff) * Math.min(Math.abs(diff), maxSlew);
+      z.moving = true;
+    } else {
+      z.moving = false;
+    }
+
+    // Evaluate power across all 9 PV tables in this Zone
+    let zKw = 0;
+    for (const tb of z.tables) {
+      tb.cloud = sampleCloudAt(tb.x, tb.z);
+      tb.tilt += (z.currentTilt - tb.tilt) * Math.min(1, dt * 8);
+
+      if (sun.above) {
+        const atmo = Math.pow(Math.sin(Math.max(2, sun.el) * D), 0.35);
+        const beamIrr = (1 - 0.88 * tb.cloud) * atmo;
+        const diffIrr = (0.13 + 0.36 * tb.cloud) * atmo;
+
+        // Helper for harvested table power at given tiltDeg + row-shading loss
+        const evalTableKw = (tiltDeg, allowShadePenalty) => {
+          const rad = tiltDeg * D;
+          const nx = Math.sin(rad), ny = Math.cos(rad);
+          let cosBeam = Math.max(0, nx * sun.vx + ny * sun.vy);
+
+          // Self-shading penalty between adjacent rows when not backtracking at low sun
+          if (allowShadePenalty && sun.el < 28) {
+            const thetaZ = Math.atan2(sun.vx, Math.max(0.02, sun.vy));
+            const projRatio = Math.cos(rad - thetaZ) / Math.max(0.08, Math.cos(thetaZ));
+            if (projRatio > (1 / GCR)) {
+              const shadeFrac = clamp(1 - (1 / GCR) / projRatio, 0, 0.75);
+              cosBeam *= (1 - shadeFrac * 1.35); // Disproportionate bypass-diode string drop
+            }
+          }
+          const skyFactor = 0.5 * (1 + Math.cos(rad));
+          return TABLE_KW_PEAK * (beamIrr * cosBeam + diffIrr * skyFactor);
+        };
+
+        const pAdapt = evalTableKw(tb.tilt, true) - (z.moving ? MOTOR_KW : 0);
+        const pClock = evalTableKw(clockIdealDeg, true) - MOTOR_KW * 0.55; // Continuous clock micro-stepping + no cloud stow
+        const pFixed = evalTableKw(0, false);
+
+        tb.kw = Math.max(0, pAdapt);
+        zKw += tb.kw;
+        plantAdaptKw += tb.kw;
+        plantClockKw += Math.max(0, pClock);
+        plantFixedKw += Math.max(0, pFixed);
+      } else {
+        tb.kw = 0;
+      }
+      if (z.moving) movingTables++;
+    }
+    z.zoneKw = zKw;
+  }
+
+  // Update cumulative energy ledger (scaled smoothly with sim time)
+  if (playing && sun.above) {
+    const dHours = (dt * SPEEDS[speedIdx] * 0.035);
+    ledger.adaptKwh += plantAdaptKw * dHours;
+    ledger.clockKwh += plantClockKw * dHours;
+    ledger.fixedKwh += plantFixedKw * dHours;
+    ledger.motorWh  += (movingTables * MOTOR_KW * 1000) * dHours;
+    ledger.totalTicks += 36;
+    ledger.savedTicks += (36 - movingTables);
+  }
+
+  // Sample rolling chart
+  chartTimer += dt;
+  if (chartTimer > 0.22) {
+    chartTimer = 0;
+    histAdapt.push(plantAdaptKw); histAdapt.shift();
+    histClock.push(plantClockKw); histClock.shift();
+    histFixed.push(plantFixedKw); histFixed.shift();
+  }
+
+  return { sun, plantAdaptKw, plantClockKw, plantFixedKw };
+}
+
+/* ============================================================================
+   3D ISOMETRIC / PERSPECTIVE SOLAR FARM RENDERER
+   ============================================================================ */
+const cv = $('farm-cv');
+const ctx = cv.getContext('2d', { alpha: false });
+let W = 0, H = 0, dpr = 1;
+
+const cam = { yaw: -32, pitch: 33, zoom: 1.0, px: 0, py: 18 };
+function resetCam() { cam.yaw = -32; cam.pitch = 33; cam.zoom = 1.0; cam.px = 0; cam.py = 18; }
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = cv.width = window.innerWidth * dpr;
+  H = cv.height = window.innerHeight * dpr;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Pointer Orbit / Pan / Zoom
+{
+  const ptrs = new Map();
+  let mode = null, pinch0 = 0;
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('dblclick', resetCam);
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      pinch0 = Math.hypot(a.x - b.x, a.y - b.y);
+      mode = 'pinch';
+    } else {
+      mode = (e.button === 2 || e.shiftKey) ? 'pan' : 'orbit';
+    }
+    cv.classList.add('drag');
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (mode === 'pinch' && ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch0 > 0) cam.zoom = clamp(cam.zoom * d / pinch0, 0.45, 2.6);
+      pinch0 = d;
+    } else if (mode === 'orbit') {
+      cam.yaw += dx * 0.35;
+      cam.pitch = clamp(cam.pitch + dy * 0.35, 10, 82);
+    } else if (mode === 'pan') {
+      cam.px += dx * dpr;
+      cam.py += dy * dpr;
+    }
+  });
+  const end = e => {
+    ptrs.delete(e.pointerId);
+    if (ptrs.size === 0) { mode = null; cv.classList.remove('drag'); }
+  };
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    cam.zoom = clamp(cam.zoom * Math.exp(-e.deltaY * 0.0012), 0.45, 2.6);
+  }, { passive: false });
+}
+
+function makeProjector() {
+  const cy = Math.cos(cam.yaw * D), sy = Math.sin(cam.yaw * D);
+  const cp = Math.cos(cam.pitch * D), sp = Math.sin(cam.pitch * D);
+  const scale = Math.min(W, H) * 0.0046 * cam.zoom;
+  const cx = W * 0.5 + cam.px;
+  const cyScreen = H * 0.52 + cam.py;
+
+  return (x, y, z) => {
+    const x1 = x * cy + z * sy;
+    const z1 = -x * sy + z * cy;
+    const y2 = y * cp - z1 * sp;
+    const z2 = y * sp + z1 * cp;
+    const fov = 340;
+    const k = fov / (fov - z2);
+    return [cx + x1 * scale * k * 100, cyScreen - y2 * scale * k * 100, z2, k];
+  };
+}
+
+function renderFarmScene(sun) {
+  // Ambient sky background responds subtly to solar elevation
+  const dayBright = clamp(sun.el / 65, 0, 1);
+  ctx.fillStyle = '#06080d';
+  ctx.fillRect(0, 0, W, H);
+
+  const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.32, 10, W * 0.5, H * 0.5, Math.max(W, H) * 0.72);
+  bgGrad.addColorStop(0, `rgba(${Math.round(16 + 26 * dayBright)}, ${Math.round(24 + 30 * dayBright)}, ${Math.round(44 + 42 * dayBright)}, 0.55)`);
+  bgGrad.addColorStop(1, 'rgba(6, 8, 13, 0)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  const proj = makeProjector();
+
+  // 1. Solar Farm Ground Pad & Quadrant Service Roads
+  const pad = 82;
+  const gCorners = [[-pad,0,-pad],[pad,0,-pad],[pad,0,pad],[-pad,0,pad]].map(p => proj(p[0],p[1],p[2]));
+  ctx.fillStyle = 'rgba(13, 20, 33, 0.78)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+  ctx.lineWidth = 1.2 * dpr;
+  ctx.beginPath();
+  gCorners.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Subtle ground grid + central North-South & East-West service roads
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+  ctx.lineWidth = 1 * dpr;
+  for (let g = -80; g <= 80; g += 16) {
+    const a = proj(g, 0, -pad), b = proj(g, 0, pad);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    const c = proj(-pad, 0, g), d = proj(pad, 0, g);
+    ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.stroke();
+  }
+
+  // Highlight selected Quadrant boundary on ground
+  const selZ = ZONES[selectedZone];
+  const qx0 = selZ.cx - 32, qx1 = selZ.cx + 32, qz0 = selZ.cz - 31, qz1 = selZ.cz + 31;
+  const qPoly = [[qx0,0.05,qz0],[qx1,0.05,qz0],[qx1,0.05,qz1],[qx0,0.05,qz1]].map(p => proj(p[0],p[1],p[2]));
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.42)';
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.04)';
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.beginPath();
+  qPoly.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Compass Labels around perimeter
+  ctx.font = `700 ${11 * dpr}px var(--mono)`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.68)';
+  for (const [lx, lz, txt] of [[0, 92, 'NORTH (0°)'], [94, 0, 'EAST (90°)'], [0, -92, 'SOUTH (180°)'], [-94, 0, 'WEST (270°)']]) {
+    const p = proj(lx, 0, lz);
+    ctx.fillText(txt, p[0], p[1]);
+  }
+
+  // 2. Ground Cloud Shadows (soft dark patches drifting across ground before panels)
+  if (weatherMode !== 'clear' && cloudMaster > 0.02) {
+    for (const cl of CLOUDS) {
+      if (Math.abs(cl.x) > 125 || Math.abs(cl.z) > 105) continue;
+      const cProj = proj(cl.x, 0.1, cl.z);
+      const rEdge = proj(cl.x + cl.rx, 0.1, cl.z);
+      const radPx = Math.max(12, Math.hypot(rEdge[0] - cProj[0], rEdge[1] - cProj[1]));
+      const alpha = clamp(0.38 * cl.density * cloudMaster, 0, 0.42);
+      const shG = ctx.createRadialGradient(cProj[0], cProj[1], radPx * 0.1, cProj[0], cProj[1], radPx * 1.25);
+      shG.addColorStop(0, `rgba(2, 4, 10, ${alpha})`);
+      shG.addColorStop(1, 'rgba(2, 4, 10, 0)');
+      ctx.fillStyle = shG;
+      ctx.beginPath();
+      ctx.arc(cProj[0], cProj[1], radPx * 1.25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 3. Collect Renderables (36 PV Tables + 4 Dome Sensor Masts) & Depth-Sort Back-to-Front
+  const items = [];
+  for (const z of ZONES) {
+    for (const tb of z.tables) {
+      const p = proj(tb.x, 2.2, tb.z);
+      items.push({ kind: 'table', z, tb, depth: p[2] });
+    }
+    const mp = proj(z.mastX, 4.5, z.mastZ);
+    items.push({ kind: 'mast', z, depth: mp[2] });
+  }
+  items.sort((a, b) => a.depth - b.depth);
+
+  const halfW = 5.2, halfL = 7.4, hubY = 3.2;
+
+  for (const it of items) {
+    if (it.kind === 'table') {
+      const { z, tb } = it;
+      const rad = tb.tilt * D;
+      const cw = Math.cos(rad) * halfW;
+      const sw = Math.sin(rad) * halfW;
+
+      // Ground shadow projected from sun vector
+      if (sun.above && tb.cloud < 0.78) {
+        const shScale = clamp(1 / Math.max(0.22, sun.vy), 1, 3.8);
+        const sxOff = -sun.vx * hubY * shScale;
+        const szOff = -sun.vz * hubY * shScale;
+        const shPts = [
+          proj(tb.x - cw + sxOff, 0.06, tb.z - halfL + szOff),
+          proj(tb.x + cw + sxOff, 0.06, tb.z - halfL + szOff),
+          proj(tb.x + cw + sxOff, 0.06, tb.z + halfL + szOff),
+          proj(tb.x - cw + sxOff, 0.06, tb.z + halfL + szOff)
+        ];
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.34 * (1 - tb.cloud)})`;
+        ctx.beginPath();
+        shPts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Steel Torque Pedestal
+      const baseP = proj(tb.x, 0, tb.z);
+      const topP  = proj(tb.x, hubY, tb.z);
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2.0 * dpr;
+      ctx.beginPath(); ctx.moveTo(baseP[0], baseP[1]); ctx.lineTo(topP[0], topP[1]); ctx.stroke();
+
+      // 4 Corners of Tilted Solar Table (West edge = -cw, +sw; East edge = +cw, -sw)
+      const c0 = proj(tb.x - cw, hubY + sw, tb.z - halfL);
+      const c1 = proj(tb.x + cw, hubY - sw, tb.z - halfL);
+      const c2 = proj(tb.x + cw, hubY - sw, tb.z + halfL);
+      const c3 = proj(tb.x - cw, hubY + sw, tb.z + halfL);
+
+      const sunlit = sun.above ? clamp((1 - 0.75 * tb.cloud) * (0.35 + 0.65 * (tb.kw / TABLE_KW_PEAK)), 0.12, 1) : 0.1;
+      const rCol = Math.round(18 + 26 * sunlit);
+      const gCol = Math.round(44 + 84 * sunlit);
+      const bCol = Math.round(96 + 135 * sunlit);
+
+      ctx.fillStyle = `rgb(${rCol}, ${gCol}, ${bCol})`;
+      ctx.strokeStyle = z.idx === selectedZone ? 'rgba(251, 191, 36, 0.75)' : 'rgba(147, 197, 253, 0.42)';
+      ctx.lineWidth = 1.0 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(c0[0], c0[1]); ctx.lineTo(c1[0], c1[1]);
+      ctx.lineTo(c2[0], c2[1]); ctx.lineTo(c3[0], c3[1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Center PV cell string divider line
+      const m0 = proj(tb.x, hubY, tb.z - halfL);
+      const m1 = proj(tb.x, hubY, tb.z + halfL);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      ctx.lineWidth = 0.7 * dpr;
+      ctx.beginPath(); ctx.moveTo(m0[0], m0[1]); ctx.lineTo(m1[0], m1[1]); ctx.stroke();
+    } else {
+      // 9-Sensor Dome Mast for Zone z
+      const { z } = it;
+      const bP = proj(z.mastX, 0, z.mastZ);
+      const tP = proj(z.mastX, 6.8, z.mastZ);
+
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2.4 * dpr;
+      ctx.beginPath(); ctx.moveTo(bP[0], bP[1]); ctx.lineTo(tP[0], tP[1]); ctx.stroke();
+
+      const domeCol = z.faulted ? '#f43f5e' : (z.mode === 'stow' ? '#38bdf8' : '#f59e0b');
+      const glowR = (z.idx === selectedZone ? 16 : 11) * dpr;
+      const dg = ctx.createRadialGradient(tP[0], tP[1], 1, tP[0], tP[1], glowR);
+      dg.addColorStop(0, domeCol);
+      dg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = dg;
+      ctx.beginPath(); ctx.arc(tP[0], tP[1], glowR, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = domeCol;
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.arc(tP[0], tP[1], 4.5 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+      // Estimated sun vector ray emerging from this Dome Mast
+      if (z.estOk) {
+        const rayTip = proj(
+          z.mastX + z.estVec[0] * 14,
+          6.8 + z.estVec[1] * 14,
+          z.mastZ + z.estVec[2] * 14
+        );
+        ctx.strokeStyle = domeCol;
+        ctx.lineWidth = 1.4 * dpr;
+        ctx.setLineDash([3 * dpr, 3 * dpr]);
+        ctx.beginPath(); ctx.moveTo(tP[0], tP[1]); ctx.lineTo(rayTip[0], rayTip[1]); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Mast Label Tag
+      ctx.font = `700 ${10 * dpr}px var(--mono)`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = z.idx === selectedZone ? '#fbbf24' : '#e2e8f0';
+      ctx.fillText(z.code, tP[0], tP[1] - 10 * dpr);
+    }
+  }
+
+  // 4. Elevated Translucent Cloud Canopy (drifting at y = 34)
+  if (weatherMode !== 'clear' && cloudMaster > 0.02) {
+    for (const cl of CLOUDS) {
+      if (Math.abs(cl.x) > 130 || Math.abs(cl.z) > 105) continue;
+      const cp = proj(cl.x, 34, cl.z);
+      const ep = proj(cl.x + cl.rx, 34, cl.z);
+      const rPx = Math.max(18, Math.hypot(ep[0] - cp[0], ep[1] - cp[1]));
+      const a = clamp(0.20 * cl.density * cloudMaster, 0, 0.28);
+      const cg = ctx.createRadialGradient(cp[0], cp[1], rPx * 0.1, cp[0], cp[1], rPx * 1.2);
+      cg.addColorStop(0, `rgba(203, 213, 225, ${a})`);
+      cg.addColorStop(1, 'rgba(203, 213, 225, 0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(cp[0], cp[1], rPx * 1.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // 5. Celestial SolarTrajectory Arc & Glowing Sun Orb
+  const arcR = 96;
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.20)';
+  ctx.lineWidth = 1.3 * dpr;
+  ctx.setLineDash([4 * dpr, 5 * dpr]);
+  ctx.beginPath();
+  let started = false;
+  for (let h = 6.0; h <= 18.0; h += 0.25) {
+    const s = getTrueSun(h);
+    const p = proj(s.vx * arcR, s.vy * arcR, s.vz * arcR);
+    if (!started) { ctx.moveTo(p[0], p[1]); started = true; }
+    else ctx.lineTo(p[0], p[1]);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (sun.above) {
+    const sp = proj(sun.vx * arcR, sun.vy * arcR, sun.vz * arcR);
+    const sg = ctx.createRadialGradient(sp[0], sp[1], 2, sp[0], sp[1], 34 * dpr);
+    sg.addColorStop(0, 'rgba(254, 243, 199, 0.95)');
+    sg.addColorStop(0.35, 'rgba(245, 158, 11, 0.55)');
+    sg.addColorStop(1, 'rgba(245, 158, 11, 0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(sp[0], sp[1], 34 * dpr, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = '#fffbeb';
+    ctx.beginPath(); ctx.arc(sp[0], sp[1], 7 * dpr, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* Click on 3D Canvas to Select Nearest Zone */
+cv.addEventListener('click', e => {
+  const proj = makeProjector();
+  const mx = e.clientX * dpr, my = e.clientY * dpr;
+  let best = -1, bestD = 42 * dpr;
+  for (const z of ZONES) {
+    const p = proj(z.mastX, 6.8, z.mastZ);
+    const dist = Math.hypot(mx - p[0], my - p[1]);
+    if (dist < bestD) { bestD = dist; best = z.idx; }
+  }
+  if (best >= 0) selectZone(best);
+});
+
+/* ============================================================================
+   HUD BUILDERS & MINI VISUALIZERS (9-SENSOR POLAR ROSE + POWER CHART)
+   ============================================================================ */
+const zoneListEl = $('zone-list');
+zoneListEl.innerHTML = ZONES.map((z, i) => `
+  <div class="zone-item ${i === 0 ? 'selected' : ''}" id="zcard-${i}" data-z="${i}">
+    <canvas class="zone-rose" id="zrose-${i}" width="76" height="76"></canvas>
+    <div class="zone-meta">
+      <h3>${z.code} <span class="src-tag" id="zsrc-${i}">SIM</span></h3>
+      <p id="zsub-${i}">Tilt 0.0° · 0.0 kW</p>
+    </div>
+    <span class="mode-pill hold" id="zpill-${i}">HOLD</span>
+  </div>
+`).join('');
+
+zoneListEl.querySelectorAll('.zone-item').forEach(el => {
+  el.addEventListener('click', () => selectZone(+el.dataset.z));
+});
+
+function selectZone(idx) {
+  selectedZone = idx;
+  ZONES.forEach((_, i) => $(`zcard-${i}`).classList.toggle('selected', i === idx));
+  $('btn-fault').classList.toggle('active', ZONES[idx].faulted);
+  $('btn-fault').textContent = ZONES[idx].faulted ? 'Clear Sensor Fault' : 'Inject Sensor Fault';
+  $('lbl-bind-serial').textContent = ZONES[idx].serialPort ? `USB Bound (${ZONES[idx].code})` : `Bind USB → ${ZONES[idx].code}`;
+}
+
+function drawPolarRose(canvas, sensors, large) {
+  const c = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2, R = w * 0.40;
+  c.clearRect(0, 0, w, h);
+
+  if (large) {
+    c.strokeStyle = 'rgba(255,255,255,0.08)';
+    c.lineWidth = 1;
+    for (const frac of [0.48, 0.88]) {
+      c.beginPath(); c.arc(cx, cy, R * frac, 0, Math.PI * 2); c.stroke();
+    }
+    c.font = '600 10px monospace';
+    c.fillStyle = 'rgba(148,163,184,0.7)';
+    c.textAlign = 'center';
+    c.fillText('N', cx, 12);
+    c.fillText('S', cx, h - 4);
+    c.fillText('E', w - 8, cy + 3);
+    c.fillText('W', 8, cy + 3);
+  }
+
+  for (let i = 0; i < 9; i++) {
+    const [az, el] = DOME_ANGLES[i];
+    const rDist = ((90 - el) / 68) * R;
+    const px = cx + Math.sin(az * D) * rDist;
+    const py = cy - Math.cos(az * D) * rDist;
+    const v = sensors[i];
+    const dotR = (large ? 6.5 : 3.0) + v * (large ? 7.5 : 2.8);
+
+    c.fillStyle = `hsla(${38 + 14 * v}, 96%, ${45 + 38 * v}%, ${0.28 + 0.72 * v})`;
+    c.beginPath(); c.arc(px, py, dotR, 0, Math.PI * 2); c.fill();
+
+    if (large) {
+      c.strokeStyle = 'rgba(255,255,255,0.28)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.fillStyle = '#fff';
+      c.font = '700 9px sans-serif';
+      c.textAlign = 'center';
+      c.fillText(`S${i+1}`, px, py + 3);
+    }
+  }
+}
+
+function drawPowerChart() {
+  const cvP = $('power-chart');
+  const c = cvP.getContext('2d');
+  const w = cvP.width = cvP.clientWidth * dpr;
+  const h = cvP.height = cvP.clientHeight * dpr;
+  c.clearRect(0, 0, w, h);
+
+  const maxKw = 160;
+  c.strokeStyle = 'rgba(255,255,255,0.06)';
+  c.lineWidth = 1 * dpr;
+  for (const f of [0.25, 0.5, 0.75]) {
+    c.beginPath(); c.moveTo(0, h * f); c.lineTo(w, h * f); c.stroke();
+  }
+
+  const plotSeries = (arr, color, width, dashed) => {
+    c.strokeStyle = color;
+    c.lineWidth = width * dpr;
+    c.setLineDash(dashed ? [4 * dpr, 3 * dpr] : []);
+    c.beginPath();
+    for (let i = 0; i < CHART_LEN; i++) {
+      const x = (i / (CHART_LEN - 1)) * w;
+      const y = h - clamp(arr[i] / maxKw, 0, 0.96) * (h - 8 * dpr) - 4 * dpr;
+      i ? c.lineTo(x, y) : c.moveTo(x, y);
+    }
+    c.stroke();
+    c.setLineDash([]);
+  };
+
+  plotSeries(histFixed, '#64748b', 1.4, false);
+  plotSeries(histClock, '#38bdf8', 1.5, true);
+  plotSeries(histAdapt, '#f59e0b', 2.2, false);
+}
+
+const MODE_LABELS = {
+  track: ['TRACKING', 'track'],
+  hold:  ['HOLD (DB)', 'hold'],
+  stow:  ['FLAT STOW', 'stow'],
+  bt:    ['BACKTRACK', 'bt'],
+  fault: ['CONSENSUS', 'fault'],
+  dark:  ['STANDBY', 'dark']
+};
+
+function formatClock(hr) {
+  const h24 = Math.floor(hr);
+  const m = Math.floor((hr - h24) * 60);
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 || 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function updateHud(stats) {
+  const { sun, plantAdaptKw, plantClockKw, plantFixedKw } = stats;
+
+  $('clock-txt').textContent = formatClock(simHour);
+  $('sun-badge').textContent = sun.above ? `SUN EL ${sun.el.toFixed(0)}°` : 'NIGHT / DUSK';
+  $('kpi-kw').textContent = `${plantAdaptKw.toFixed(1)} kW`;
+
+  const gainFixed = ledger.fixedKwh > 0.05 ? ((ledger.adaptKwh - ledger.fixedKwh) / ledger.fixedKwh) * 100 : 0;
+  const gainClock = ledger.clockKwh > 0.05 ? ((ledger.adaptKwh - ledger.clockKwh) / ledger.clockKwh) * 100 : 0;
+  const dutySaved = ledger.totalTicks > 0 ? Math.round((ledger.savedTicks / ledger.totalTicks) * 100) : 0;
+
+  $('kpi-gain-fixed').textContent = `${gainFixed >= 0 ? '+' : ''}${gainFixed.toFixed(1)}% vs Fixed`;
+  $('kpi-gain-clock').textContent = `${gainClock >= 0 ? '+' : ''}${gainClock.toFixed(1)}% vs Clock`;
+  $('kpi-saved').textContent = `${dutySaved}%`;
+
+  const now = performance.now();
+  ZONES.forEach((z, i) => {
+    drawPolarRose($(`zrose-${i}`), z.sensors, false);
+    const [lbl, cls] = MODE_LABELS[z.mode];
+    const pill = $(`zpill-${i}`);
+    pill.textContent = lbl;
+    pill.className = `mode-pill ${cls}`;
+
+    const liveDirect = (now - z.liveTs) < 2500;
+    const liveMirror = !liveDirect && mirrorHw && (now - ZONES[0].liveTs) < 2500;
+    const srcEl = $(`zsrc-${i}`);
+    srcEl.textContent = liveDirect ? z.liveSrc : (liveMirror ? 'MIRROR' : 'SIM');
+    srcEl.className = 'src-tag' + (liveDirect ? ' live' : (liveMirror ? ' mirror' : ''));
+
+    $(`zsub-${i}`).textContent = `Tilt ${z.currentTilt >= 0 ? '+' : ''}${z.currentTilt.toFixed(1)}° · ${z.zoneKw.toFixed(1)} kW`;
+  });
+
+  // Selected Zone Inspector
+  const sz = ZONES[selectedZone];
+  $('insp-title').textContent = `${sz.code} (${sz.name.toUpperCase()}) · 9 CHANNELS`;
+  const [iLbl, iCls] = MODE_LABELS[sz.mode];
+  $('insp-pill').textContent = iLbl;
+  $('insp-pill').className = `mode-pill ${iCls}`;
+  $('insp-azel').textContent = sz.estOk ? `${sz.az.toFixed(0)}° / ${sz.el.toFixed(0)}°` : '— / —';
+  $('insp-cloud').textContent = `${Math.round((1 - sz.localCloud) * 100)}% / ${Math.round(sz.localCloud * 100)}%`;
+  $('insp-spread').textContent = sz.spread.toFixed(2);
+  $('insp-tilt').textContent = `${sz.targetTilt >= 0 ? '+' : ''}${sz.targetTilt.toFixed(1)}°`;
+  $('insp-kw').textContent = `${sz.zoneKw.toFixed(1)} kW`;
+  drawPolarRose($('inspector-rose'), sz.sensors, true);
+
+  // Energy Ledger
+  $('net-kwh-lbl').textContent = `${ledger.adaptKwh.toFixed(1)} kWh`;
+  $('led-adapt').textContent = `${ledger.adaptKwh.toFixed(2)} kWh`;
+  $('led-clock').textContent = `${ledger.clockKwh.toFixed(2)} kWh`;
+  $('led-fixed').textContent = `${ledger.fixedKwh.toFixed(2)} kWh`;
+  $('led-motor').textContent = `${ledger.motorWh.toFixed(1)} Wh`;
+  drawPowerChart();
+}
+
+/* ============================================================================
+   UI CONTROLS & MAIN ANIMATION LOOP
+   ============================================================================ */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const v = btn.dataset.view;
+    const grid = $('hud-grid');
+    grid.className = 'hud-grid' +
+      (v === 'cinema' ? ' cinema' : v === 'sensors' ? ' focus-sensors' : v === 'energy' ? ' focus-energy' : '');
+  });
+});
+
+$('weather-preset').onchange = e => {
+  weatherMode = e.target.value;
+  if (weatherMode === 'clear') { cloudMaster = 0; $('cloud-slider').value = 0; }
+  else if (weatherMode === 'scattered') { cloudMaster = 0.48; $('cloud-slider').value = 0.48; }
+  else if (weatherMode === 'front') { cloudMaster = 0.72; $('cloud-slider').value = 0.72; }
+  else if (weatherMode === 'overcast') { cloudMaster = 0.90; $('cloud-slider').value = 0.90; }
+};
+
+$('btn-play').onclick = () => {
+  playing = !playing;
+  $('btn-play').textContent = playing ? 'Pause' : 'Play';
+  $('btn-play').classList.toggle('active', playing);
+};
+
+$('btn-speed').onclick = () => {
+  speedIdx = (speedIdx + 1) % SPEEDS.length;
+  $('btn-speed').textContent = `${SPEEDS[speedIdx]}×`;
+};
+
+$('time-slider').oninput = e => {
+  simHour = +e.target.value;
+};
+
+$('cloud-slider').oninput = e => {
+  cloudMaster = +e.target.value;
+  if (cloudMaster > 0.02 && weatherMode === 'clear') {
+    weatherMode = 'scattered';
+    $('weather-preset').value = 'scattered';
+  }
+};
+
+$('chk-backtrack').onchange = e => { backtrackOn = e.target.checked; };
+$('btn-reset-cam').onclick = resetCam;
+
+$('btn-mirror-hw').onclick = () => {
+  mirrorHw = !mirrorHw;
+  $('btn-mirror-hw').classList.toggle('active', mirrorHw);
+};
+
+$('btn-bind-serial').onclick = () => bindSerialToZone(selectedZone);
+
+$('btn-fault').onclick = () => {
+  const z = ZONES[selectedZone];
+  z.faulted = !z.faulted;
+  selectZone(selectedZone);
+};
+
+addEventListener('keydown', e => {
+  if (e.key === 'h' || e.key === 'H') $('hud-grid').classList.toggle('cinema');
+  if (e.key === ' ') { e.preventDefault(); $('btn-play').click(); }
+});
+
+let prevTs = performance.now(), hudAccum = 0;
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - prevTs) / 1000);
+  prevTs = ts;
+
+  const stats = stepSimulation(dt);
+  renderFarmScene(stats.sun);
+
+  hudAccum += dt;
+  if (hudAccum > 0.1) {
+    hudAccum = 0;
+    updateHud(stats);
+  }
+  requestAnimationFrame(loop);
+}
+selectZone(0);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
